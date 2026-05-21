@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>R2 Upload</title>
+  <title>Upload Files</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #f5f5f7; color: #1a1a1a; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
@@ -32,11 +32,11 @@
 </head>
 <body>
   <div class="card">
-    <h1>Upload to R2</h1>
+    <h1>Upload to Store</h1>
     <p class="sub">Images &amp; videos · Max 100 MB</p>
 
     <div id="dropzone" class="dropzone">
-      <span class="file-icon">📁</span>
+      <span class="file-icon">&#128193;</span>
       <p>Choose a file or drag it here</p>
       <p class="supported">JPEG, PNG, GIF, WebP, SVG, MP4, WebM, MOV, AVI</p>
     </div>
@@ -92,13 +92,10 @@
       function handleFiles(files) {
         if (!files || files.length === 0) return;
         const file = files[0];
-
-        // Client-side size check
         if (file.size > MAX_BYTES) {
           showMessage(`File too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`, 'error');
           return;
         }
-
         hideMessage();
         uploadFile(file);
       }
@@ -127,7 +124,7 @@
               if (resp.success) {
                 showMessage(`Uploaded! <a href="${resp.url}" target="_blank">${resp.url}</a>`, 'success');
               } else {
-                showMessage(resp.error || 'Unknown server error.', 'error');
+                showMessage(resp.error || 'Unknown error.', 'error');
               }
             } catch {
               showMessage('Unexpected server response.', 'error');
@@ -153,11 +150,9 @@
         xhr.send(formData);
       }
 
-      // Click to open file picker
       dropzone.addEventListener('click', () => fileInput.click());
       fileInput.addEventListener('change', () => handleFiles(fileInput.files));
 
-      // Drag & drop
       dropzone.addEventListener('dragover', (e) => {
         e.preventDefault();
         dropzone.classList.add('dragover');
@@ -168,8 +163,6 @@
         dropzone.classList.remove('dragover');
         handleFiles(e.dataTransfer.files);
       });
-
-      // Reset after a while? No, keep message visible.
     })();
   </script>
 </body>
