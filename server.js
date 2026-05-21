@@ -1,6 +1,6 @@
 const express = require('express');
 const multer  = require('multer');
-const { S3Client, PutObjectCommand, GetObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, NoSuchKey } = require('@aws-sdk/client-s3');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -42,7 +42,7 @@ const upload = multer({
   },
 });
 
-// ---------- Serve the upload page (index.html) ----------
+// ---------- Serve static files ----------
 app.use(express.static('public'));
 
 // ---------- Upload endpoint ----------
@@ -73,7 +73,6 @@ app.post('/upload', (req, res, next) => {
       ContentType: file.mimetype,
     }));
 
-    // The public URL that will be served by the /files/ route
     const publicUrl = `https://${req.hostname}/files/${safeName}`;
 
     res.json({ success: true, url: publicUrl, filename: safeName, size: file.size });
@@ -102,6 +101,28 @@ app.get('/files/:key', async (req, res) => {
     }
     console.error('Proxy error:', error);
     res.status(500).send('Internal server error');
+  }
+});
+
+// ---------- Library endpoint (list all files) ----------
+app.get('/list', async (req, res) => {
+  try {
+    const command = new ListObjectsV2Command({
+      Bucket: R2_BUCKET,
+    });
+    const data = await s3.send(command);
+    const files = (data.Contents || []).map(obj => ({
+      key: obj.Key,
+      size: obj.Size,
+      lastModified: obj.LastModified,
+      url: `https://${req.hostname}/files/${obj.Key}`
+    }));
+    // Sort newest first
+    files.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+    res.json({ success: true, files });
+  } catch (err) {
+    console.error('List error:', err);
+    res.status(500).json({ success: false, error: 'Failed to list files.' });
   }
 });
 
