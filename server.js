@@ -1,6 +1,6 @@
 const express = require('express');
 const multer  = require('multer');
-const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, NoSuchKey } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -101,6 +101,21 @@ app.get('/files/:key', async (req, res) => {
     }
     console.error('Proxy error:', error);
     res.status(500).send('Internal server error');
+  }
+});
+
+// ---------- Delete file endpoint ----------
+app.delete('/files/:key', async (req, res) => {
+  const key = req.params.key;
+  try {
+    await s3.send(new DeleteObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: key,
+    }));
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete error:', err);
+    res.status(500).json({ success: false, error: 'Failed to delete file.' });
   }
 });
 
