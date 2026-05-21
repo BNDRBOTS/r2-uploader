@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>R2 Upload</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #f5f5f7; color: #1a1a1a; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
+    .card { width: 100%; max-width: 480px; background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 32px 24px; margin: 16px; }
+    h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 6px; }
+    p.sub { font-size: 0.9rem; color: #666; margin-bottom: 24px; }
+    .dropzone { border: 2px dashed #d1d5db; border-radius: 10px; padding: 32px 16px; text-align: center; cursor: pointer; transition: border-color 0.2s; }
+    .dropzone.dragover { border-color: #3b82f6; background: #f0f7ff; }
+    .dropzone p { font-size: 0.95rem; color: #4b5563; margin: 0; }
+    .dropzone .supported { font-size: 0.8rem; color: #9ca3af; margin-top: 8px; }
+    input[type="file"] { display: none; }
+    .progress-wrap { margin-top: 20px; display: none; }
+    .progress-bar-bg { width: 100%; height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; width: 0%; background: #3b82f6; border-radius: 999px; transition: width 0.15s linear; }
+    .progress-text { font-size: 0.85rem; color: #4b5563; margin-top: 6px; display: flex; justify-content: space-between; }
+    .message { margin-top: 20px; padding: 12px 16px; border-radius: 8px; font-size: 0.9rem; display: none; }
+    .message.success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; display: block; }
+    .message.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; display: block; }
+    .message a { color: inherit; text-decoration: underline; }
+    .file-icon { font-size: 2rem; display: block; margin-bottom: 8px; }
+    button { background: #3b82f6; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; width: 100%; margin-top: 12px; transition: background 0.2s; }
+    button:hover { background: #2563eb; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    @media (max-width: 480px) { .card { padding: 24px 16px; } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Upload to R2</h1>
+    <p class="sub">Images &amp; videos · Max 100 MB</p>
+
+    <div id="dropzone" class="dropzone">
+      <span class="file-icon">📁</span>
+      <p>Choose a file or drag it here</p>
+      <p class="supported">JPEG, PNG, GIF, WebP, SVG, MP4, WebM, MOV, AVI</p>
+    </div>
+    <input type="file" id="fileInput" accept="image/*,video/*">
+
+    <div id="progressWrap" class="progress-wrap">
+      <div class="progress-bar-bg"><div id="progressFill" class="progress-bar-fill"></div></div>
+      <div class="progress-text">
+        <span id="progressPercent">0%</span>
+        <span id="progressSize">0 / 0 MB</span>
+      </div>
+    </div>
+
+    <div id="message" class="message"></div>
+  </div>
+
+  <script>
+    (function() {
+      const dropzone = document.getElementById('dropzone');
+      const fileInput = document.getElementById('fileInput');
+      const progressWrap = document.getElementById('progressWrap');
+      const progressFill = document.getElementById('progressFill');
+      const progressPercent = document.getElementById('progressPercent');
+      const progressSize = document.getElementById('progressSize');
+      const messageDiv = document.getElementById('message');
+      const MAX_FILE_SIZE_MB = 100;
+      const MAX_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+      function showMessage(text, type) {
+        messageDiv.textContent = text;
+        messageDiv.className = 'message ' + type;
+        messageDiv.style.display = 'block';
+      }
+
+      function hideMessage() {
+        messageDiv.style.display = 'none';
+        messageDiv.className = 'message';
+      }
+
+      function formatBytes(bytes) {
+        if (bytes === 0) return '0 MB';
+        const mb = (bytes / (1024 * 1024)).toFixed(1);
+        return `${mb} MB`;
+      }
+
+      function resetUI() {
+        progressWrap.style.display = 'none';
+        progressFill.style.width = '0%';
+        progressPercent.textContent = '0%';
+        progressSize.textContent = `0 / 0 MB`;
+      }
+
+      function handleFiles(files) {
+        if (!files || files.length === 0) return;
+        const file = files[0];
+
+        // Client-side size check
+        if (file.size > MAX_BYTES) {
+          showMessage(`File too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`, 'error');
+          return;
+        }
+
+        hideMessage();
+        uploadFile(file);
+      }
+
+      function uploadFile(file) {
+        progressWrap.style.display = 'block';
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/upload', true);
+
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            progressFill.style.width = percent + '%';
+            progressPercent.textContent = percent + '%';
+            progressSize.textContent = formatBytes(e.loaded) + ' / ' + formatBytes(e.total);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const resp = JSON.parse(xhr.responseText);
+              if (resp.success) {
+                showMessage(`Uploaded! <a href="${resp.url}" target="_blank">${resp.url}</a>`, 'success');
+              } else {
+                showMessage(resp.error || 'Unknown server error.', 'error');
+              }
+            } catch {
+              showMessage('Unexpected server response.', 'error');
+            }
+          } else {
+            let errMsg = `Upload failed with status ${xhr.status}`;
+            try {
+              const errResp = JSON.parse(xhr.responseText);
+              if (errResp.error) errMsg = errResp.error;
+            } catch {}
+            showMessage(errMsg, 'error');
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          showMessage('Network error. Check your connection and try again.', 'error');
+        });
+
+        xhr.addEventListener('abort', () => {
+          showMessage('Upload aborted.', 'error');
+        });
+
+        xhr.send(formData);
+      }
+
+      // Click to open file picker
+      dropzone.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+      // Drag & drop
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+      dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        handleFiles(e.dataTransfer.files);
+      });
+
+      // Reset after a while? No, keep message visible.
+    })();
+  </script>
+</body>
+</html>
