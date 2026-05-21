@@ -3,12 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Upload Files</title>
+  <title>Store Uploads</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #f5f5f7; color: #1a1a1a; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
-    .card { width: 100%; max-width: 480px; background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 32px 24px; margin: 16px; }
-    h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 6px; }
+    .card { width: 100%; max-width: 540px; background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 0; margin: 16px; overflow: hidden; }
+    .tabs { display: flex; border-bottom: 1px solid #e5e7eb; }
+    .tab { flex: 1; text-align: center; padding: 14px 0; font-size: 1rem; font-weight: 500; color: #6b7280; background: #f9fafb; cursor: pointer; border-bottom: 2px solid transparent; }
+    .tab.active { color: #3b82f6; border-bottom: 2px solid #3b82f6; background: #fff; }
+    .view { display: none; padding: 32px 24px; }
+    .view.active { display: block; }
+    h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 6px; }
     p.sub { font-size: 0.9rem; color: #666; margin-bottom: 24px; }
     .dropzone { border: 2px dashed #d1d5db; border-radius: 10px; padding: 32px 16px; text-align: center; cursor: pointer; transition: border-color 0.2s; }
     .dropzone.dragover { border-color: #3b82f6; background: #f0f7ff; }
@@ -27,34 +32,70 @@
     button { background: #3b82f6; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; width: 100%; margin-top: 12px; transition: background 0.2s; }
     button:hover { background: #2563eb; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    @media (max-width: 480px) { .card { padding: 24px 16px; } }
+    /* Library styles */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+    .grid-item { border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; background: #fff; text-decoration: none; color: inherit; transition: box-shadow 0.2s; }
+    .grid-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .grid-item img, .grid-item video { width: 100%; height: 100px; object-fit: cover; background: #f3f4f6; }
+    .grid-item .placeholder { height: 100px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: #9ca3af; }
+    .grid-item .info { padding: 6px 8px; font-size: 0.7rem; color: #4b5563; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .empty-state { text-align: center; color: #9ca3af; margin-top: 32px; }
+    @media (max-width: 480px) { .card { padding: 0; } .view { padding: 24px 16px; } }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Upload to Store</h1>
-    <p class="sub">Images &amp; videos · Max 100 MB</p>
-
-    <div id="dropzone" class="dropzone">
-      <span class="file-icon">&#128193;</span>
-      <p>Choose a file or drag it here</p>
-      <p class="supported">JPEG, PNG, GIF, WebP, SVG, MP4, WebM, MOV, AVI</p>
+    <div class="tabs">
+      <div class="tab active" data-view="upload">Upload</div>
+      <div class="tab" data-view="library">Library</div>
     </div>
-    <input type="file" id="fileInput" accept="image/*,video/*">
 
-    <div id="progressWrap" class="progress-wrap">
-      <div class="progress-bar-bg"><div id="progressFill" class="progress-bar-fill"></div></div>
-      <div class="progress-text">
-        <span id="progressPercent">0%</span>
-        <span id="progressSize">0 / 0 MB</span>
+    <!-- Upload View -->
+    <div id="uploadView" class="view active">
+      <h1>Upload to Store</h1>
+      <p class="sub">Images &amp; videos · Max 100 MB</p>
+      <div id="dropzone" class="dropzone">
+        <span class="file-icon">&#128193;</span>
+        <p>Choose a file or drag it here</p>
+        <p class="supported">JPEG, PNG, GIF, WebP, SVG, MP4, WebM, MOV, AVI</p>
       </div>
+      <input type="file" id="fileInput" accept="image/*,video/*">
+      <div id="progressWrap" class="progress-wrap">
+        <div class="progress-bar-bg"><div id="progressFill" class="progress-bar-fill"></div></div>
+        <div class="progress-text">
+          <span id="progressPercent">0%</span>
+          <span id="progressSize">0 / 0 MB</span>
+        </div>
+      </div>
+      <div id="message" class="message"></div>
     </div>
 
-    <div id="message" class="message"></div>
+    <!-- Library View -->
+    <div id="libraryView" class="view">
+      <h1>Your Library</h1>
+      <p class="sub">All uploaded files</p>
+      <div id="grid" class="grid"></div>
+      <div id="empty" class="empty-state" style="display:none;">No files uploaded yet.</div>
+      <div id="libError" class="message error" style="display:none;"></div>
+    </div>
   </div>
 
   <script>
     (function() {
+      // ----- Tabs -----
+      const tabs = document.querySelectorAll('.tab');
+      const views = document.querySelectorAll('.view');
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          tabs.forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          views.forEach(v => v.classList.remove('active'));
+          document.getElementById(tab.dataset.view + 'View').classList.add('active');
+          if (tab.dataset.view === 'library') loadLibrary();
+        });
+      });
+
+      // ----- Upload logic (unchanged) -----
       const dropzone = document.getElementById('dropzone');
       const fileInput = document.getElementById('fileInput');
       const progressWrap = document.getElementById('progressWrap');
@@ -70,25 +111,20 @@
         messageDiv.className = 'message ' + type;
         messageDiv.style.display = 'block';
       }
-
       function hideMessage() {
         messageDiv.style.display = 'none';
         messageDiv.className = 'message';
       }
-
       function formatBytes(bytes) {
         if (bytes === 0) return '0 MB';
-        const mb = (bytes / (1024 * 1024)).toFixed(1);
-        return `${mb} MB`;
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
       }
-
       function resetUI() {
         progressWrap.style.display = 'none';
         progressFill.style.width = '0%';
         progressPercent.textContent = '0%';
-        progressSize.textContent = `0 / 0 MB`;
+        progressSize.textContent = '0 / 0 MB';
       }
-
       function handleFiles(files) {
         if (!files || files.length === 0) return;
         const file = files[0];
@@ -99,15 +135,12 @@
         hideMessage();
         uploadFile(file);
       }
-
       function uploadFile(file) {
         progressWrap.style.display = 'block';
         const formData = new FormData();
         formData.append('file', file);
-
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/upload', true);
-
         xhr.upload.addEventListener('progress', (e) => {
           if (e.lengthComputable) {
             const percent = Math.round((e.loaded / e.total) * 100);
@@ -116,13 +149,14 @@
             progressSize.textContent = formatBytes(e.loaded) + ' / ' + formatBytes(e.total);
           }
         });
-
         xhr.addEventListener('load', () => {
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
               const resp = JSON.parse(xhr.responseText);
               if (resp.success) {
                 showMessage(`Uploaded! <a href="${resp.url}" target="_blank">${resp.url}</a>`, 'success');
+                // Refresh library in background (if visible)
+                if (document.getElementById('libraryView').classList.contains('active')) loadLibrary();
               } else {
                 showMessage(resp.error || 'Unknown error.', 'error');
               }
@@ -138,21 +172,12 @@
             showMessage(errMsg, 'error');
           }
         });
-
-        xhr.addEventListener('error', () => {
-          showMessage('Network error. Check your connection and try again.', 'error');
-        });
-
-        xhr.addEventListener('abort', () => {
-          showMessage('Upload aborted.', 'error');
-        });
-
+        xhr.addEventListener('error', () => showMessage('Network error.', 'error'));
+        xhr.addEventListener('abort', () => showMessage('Upload aborted.', 'error'));
         xhr.send(formData);
       }
-
       dropzone.addEventListener('click', () => fileInput.click());
       fileInput.addEventListener('change', () => handleFiles(fileInput.files));
-
       dropzone.addEventListener('dragover', (e) => {
         e.preventDefault();
         dropzone.classList.add('dragover');
@@ -163,6 +188,59 @@
         dropzone.classList.remove('dragover');
         handleFiles(e.dataTransfer.files);
       });
+
+      // ----- Library logic -----
+      const grid = document.getElementById('grid');
+      const emptyMsg = document.getElementById('empty');
+      const libError = document.getElementById('libError');
+
+      async function loadLibrary() {
+        try {
+          grid.innerHTML = '';
+          emptyMsg.style.display = 'none';
+          libError.style.display = 'none';
+          const res = await fetch('/list');
+          const data = await res.json();
+          if (!data.success) throw new Error(data.error || 'Failed to load');
+          if (!data.files.length) {
+            emptyMsg.style.display = 'block';
+            return;
+          }
+          data.files.forEach(file => {
+            const isImage = /\.(jpe?g|png|gif|webp|svg)$/i.test(file.key);
+            const isVideo = /\.(mp4|webm|ogg|mov|avi)$/i.test(file.key);
+            const item = document.createElement('a');
+            item.className = 'grid-item';
+            item.href = file.url;
+            item.target = '_blank';
+            if (isImage) {
+              const img = document.createElement('img');
+              img.src = file.url;
+              img.alt = file.key;
+              item.appendChild(img);
+            } else if (isVideo) {
+              const vid = document.createElement('video');
+              vid.src = file.url;
+              vid.muted = true;
+              vid.preload = 'metadata';
+              item.appendChild(vid);
+            } else {
+              const placeholder = document.createElement('div');
+              placeholder.className = 'placeholder';
+              placeholder.innerHTML = '&#128196;'; // file icon
+              item.appendChild(placeholder);
+            }
+            const info = document.createElement('div');
+            info.className = 'info';
+            info.textContent = file.key.substring(0, 20) + (file.key.length > 20 ? '…' : '') + ' · ' + formatBytes(file.size);
+            item.appendChild(info);
+            grid.appendChild(item);
+          });
+        } catch (err) {
+          libError.textContent = 'Could not load library: ' + err.message;
+          libError.style.display = 'block';
+        }
+      }
     })();
   </script>
 </body>
