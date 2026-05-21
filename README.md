@@ -1,88 +1,37 @@
-R2 Uploader Setup Guide
-Your Own Private Image & Video Host (No Coding Required)
-This guide will walk you through creating a personal upload page where you can drag and drop images and videos, see them in a library, copy their links, and delete them. Everything is stored securely on Cloudflare R2 and served instantly via your own Railway app. You do not need a custom domain — the provided Railway URL works perfectly.
+# R2 Uploader
 
-What You Will End Up With
-A mobile‑friendly upload page with drag‑and‑drop and a progress bar.
+A clean, mobile‑first upload page for Cloudflare R2.  
+Drag and drop images or videos, get instant public links, and manage your library.
 
-A library tab that shows all your files with large thumbnails, a copy link button, and the ability to delete files.
+## Features
+- Drag‑and‑drop upload with progress bar
+- Supports images (JPEG, PNG, GIF, WebP, SVG) and videos (MP4, WebM, MOV, AVI)
+- File library with large thumbnails, full‑screen preview, and video playback
+- Copy link button for every file
+- Delete files directly from the library
+- Works great on phones, tablets, and desktops
 
-Links you can use anywhere — in a store, website, or messages.
+## How to Deploy
+1. Use this repository as a template or copy the files.
+2. Deploy to [Railway](https://railway.app) (or any Node.js host).
+3. Add these environment variables:
 
-No monthly fees beyond your free Railway / Cloudflare usage (likely free for personal use).
+   | Variable | Description |
+   |---|---|
+   | `R2_ENDPOINT` | Your Cloudflare R2 S3 endpoint (e.g., `https://<id>.r2.cloudflarestorage.com`) |
+   | `R2_ACCESS_KEY_ID` | Access Key ID from an R2 API token with **Object Read & Write** permission |
+   | `R2_SECRET_ACCESS_KEY` | Secret Access Key from the same token |
+   | `R2_BUCKET_NAME` | The name of your R2 bucket |
 
-Prerequisites
-A Cloudflare account (free tier works).
+4. Set the application port to **8080** (or the port your host assigns – the app listens on `process.env.PORT`).
+5. Open the public URL – you’re ready to upload!
 
-A GitHub account (free).
+## No Custom Domain Required
+The app uses its own URL to serve files. If you later want a custom domain like `images.yourdomain.com`, you can add it in Railway’s settings – the app will automatically use that domain in the generated links.
 
-A Railway account (free tier works).
-You do not need to install anything on your computer — everything is done in your browser.
+## Security
+- Your R2 bucket remains **private**; the app proxies requests, so your credentials are never exposed to the browser.
+- The upload page does **not** require a login – host it privately or protect it if needed.
 
-Step 1: Create Your R2 Bucket (Cloudflare)
-Log in to your Cloudflare dashboard at dash.cloudflare.com.
-
-In the left sidebar, click Storage & Databases → R2.
-
-Click the Create bucket button.
-
-Fill in:
-
-Bucket name: my-store-images (or any name – write it down).
-
-Location: Leave on Automatic.
-
-Default Storage Class: Choose Standard.
-
-Click Create bucket.
-Your bucket is now ready, but it is private by default — only your app will access it.
-
-Step 2: Create an API Token (Cloudflare)
-This token allows your app to upload, list, and serve files from your bucket.
-
-Still in the Cloudflare dashboard, go to R2 overview page.
-
-Under Account Details, click Manage API tokens.
-
-Click Create API token.
-
-Choose Account API Tokens (recommended).
-
-Set:
-
-Token name: Uploader Token
-
-Permissions: Object Read & Write
-
-Specify bucket(s): Check the bucket you just created.
-
-Leave Client IP Address Filtering empty.
-
-Click Create API token.
-
-You will see two values. Copy both immediately and save them somewhere safe (you will not see the Secret Key again):
-
-Access Key ID
-
-Secret Access Key
-
-Step 3: Find Your S3 Endpoint (Cloudflare)
-On the R2 overview page, you will see a box labelled Account Details.
-
-Copy the full URL under S3 API. It looks like:
-https://xxxxxxxxxxxxxxxxxxxxxxxxxx.r2.cloudflarestorage.com
-This is your R2 Endpoint. Save it with the keys.
-
-Step 4: Create a GitHub Repository and Add the App Files
-Go to github.com and log in.
-
-Click the + icon in the top right → New repository.
-
-Name it r2-uploader (or whatever you like).
-Do not check any boxes (no README, no .gitignore).
-Keep visibility Public or Private – both work.
-
-Click Create repository.
-
-Now add three files using the Add file → Create new file button.
-
+## License
+MIT – do whatever you want with it.
