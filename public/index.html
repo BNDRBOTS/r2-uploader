@@ -7,7 +7,7 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #f5f5f7; color: #1a1a1a; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
-    .card { width: 100%; max-width: 540px; background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 0; margin: 16px; overflow: hidden; }
+    .card { width: 100%; max-width: 640px; background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 0; margin: 16px; overflow: hidden; }
     .tabs { display: flex; border-bottom: 1px solid #e5e7eb; }
     .tab { flex: 1; text-align: center; padding: 14px 0; font-size: 1rem; font-weight: 500; color: #6b7280; background: #f9fafb; cursor: pointer; border-bottom: 2px solid transparent; }
     .tab.active { color: #3b82f6; border-bottom: 2px solid #3b82f6; background: #fff; }
@@ -32,15 +32,29 @@
     button { background: #3b82f6; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; width: 100%; margin-top: 12px; transition: background 0.2s; }
     button:hover { background: #2563eb; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    /* Library styles */
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
-    .grid-item { border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; background: #fff; text-decoration: none; color: inherit; transition: box-shadow 0.2s; }
-    .grid-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-    .grid-item img, .grid-item video { width: 100%; height: 100px; object-fit: cover; background: #f3f4f6; }
-    .grid-item .placeholder { height: 100px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: #9ca3af; }
-    .grid-item .info { padding: 6px 8px; font-size: 0.7rem; color: #4b5563; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Library grid */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; }
+    .grid-item { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #e5e7eb; background: #fff; transition: box-shadow 0.2s; display: flex; flex-direction: column; }
+    .grid-item:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .thumb { width: 100%; height: 200px; object-fit: cover; background: #f3f4f6; display: block; cursor: pointer; }
+    .video-thumb { width: 100%; height: 200px; object-fit: cover; background: #000; cursor: pointer; }
+    .grid-item .info { padding: 8px 10px; font-size: 0.8rem; color: #4b5563; }
+    .grid-item .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; margin-bottom: 2px; }
+    .grid-item .size { color: #9ca3af; margin-bottom: 4px; }
+    .url-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+    .url-text { font-size: 0.7rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+    .copy-btn { background: #e0e7ff; border: none; color: #3730a3; font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; font-weight: 500; }
+    .copy-btn:active { background: #c7d2fe; }
+    .delete-btn { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.9); border: none; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #ef4444; font-size: 1rem; line-height: 1; }
+    .delete-btn:hover { background: #fff; }
     .empty-state { text-align: center; color: #9ca3af; margin-top: 32px; }
-    @media (max-width: 480px) { .card { padding: 0; } .view { padding: 24px 16px; } }
+    /* Modal */
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.open { display: flex; }
+    .modal-content { max-width: 90vw; max-height: 90vh; position: relative; }
+    .modal-content img, .modal-content video { max-width: 90vw; max-height: 85vh; border-radius: 8px; }
+    .modal-close { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.8); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 1.2rem; line-height: 1; display: flex; align-items: center; justify-content: center; }
+    @media (max-width: 480px) { .view { padding: 24px 16px; } .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } }
   </style>
 </head>
 <body>
@@ -52,7 +66,7 @@
 
     <!-- Upload View -->
     <div id="uploadView" class="view active">
-      <h1>Upload to Store</h1>
+      <h1>Upload</h1>
       <p class="sub">Images &amp; videos · Max 100 MB</p>
       <div id="dropzone" class="dropzone">
         <span class="file-icon">&#128193;</span>
@@ -72,11 +86,19 @@
 
     <!-- Library View -->
     <div id="libraryView" class="view">
-      <h1>Your Library</h1>
-      <p class="sub">All uploaded files</p>
+      <h1>Library</h1>
+      <p class="sub">All your files</p>
       <div id="grid" class="grid"></div>
-      <div id="empty" class="empty-state" style="display:none;">No files uploaded yet.</div>
+      <div id="empty" class="empty-state" style="display:none;">Nothing uploaded yet.</div>
       <div id="libError" class="message error" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Image/Video Preview Modal -->
+  <div id="previewModal" class="modal">
+    <div class="modal-content">
+      <span class="modal-close" id="closeModal">&times;</span>
+      <div id="modalMedia"></div>
     </div>
   </div>
 
@@ -95,7 +117,7 @@
         });
       });
 
-      // ----- Upload logic (unchanged) -----
+      // ----- Upload logic -----
       const dropzone = document.getElementById('dropzone');
       const fileInput = document.getElementById('fileInput');
       const progressWrap = document.getElementById('progressWrap');
@@ -155,7 +177,6 @@
               const resp = JSON.parse(xhr.responseText);
               if (resp.success) {
                 showMessage(`Uploaded! <a href="${resp.url}" target="_blank">${resp.url}</a>`, 'success');
-                // Refresh library in background (if visible)
                 if (document.getElementById('libraryView').classList.contains('active')) loadLibrary();
               } else {
                 showMessage(resp.error || 'Unknown error.', 'error');
@@ -193,6 +214,69 @@
       const grid = document.getElementById('grid');
       const emptyMsg = document.getElementById('empty');
       const libError = document.getElementById('libError');
+      const previewModal = document.getElementById('previewModal');
+      const modalMedia = document.getElementById('modalMedia');
+      const closeModal = document.getElementById('closeModal');
+
+      closeModal.addEventListener('click', () => {
+        previewModal.classList.remove('open');
+        modalMedia.innerHTML = '';
+      });
+      previewModal.addEventListener('click', (e) => {
+        if (e.target === previewModal) {
+          previewModal.classList.remove('open');
+          modalMedia.innerHTML = '';
+        }
+      });
+
+      function openPreview(url, isVideo) {
+        modalMedia.innerHTML = '';
+        if (isVideo) {
+          const vid = document.createElement('video');
+          vid.src = url;
+          vid.controls = true;
+          vid.autoplay = false;
+          vid.style.maxWidth = '90vw';
+          vid.style.maxHeight = '85vh';
+          modalMedia.appendChild(vid);
+        } else {
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = 'Preview';
+          modalMedia.appendChild(img);
+        }
+        previewModal.classList.add('open');
+      }
+
+      async function deleteFile(key, element) {
+        if (!confirm('Delete this file permanently?')) return;
+        try {
+          const res = await fetch('/files/' + key, { method: 'DELETE' });
+          const data = await res.json();
+          if (data.success) {
+            element.remove();
+            if (grid.children.length === 0) {
+              emptyMsg.style.display = 'block';
+            }
+          } else {
+            alert('Failed to delete: ' + data.error);
+          }
+        } catch (err) {
+          alert('Network error while deleting.');
+        }
+      }
+
+      function copyToClipboard(text, button) {
+        navigator.clipboard.writeText(text).then(() => {
+          const originalText = button.textContent;
+          button.textContent = 'Copied!';
+          setTimeout(() => {
+            button.textContent = originalText;
+          }, 1500);
+        }).catch(() => {
+          alert('Could not copy link. Please copy manually.');
+        });
+      }
 
       async function loadLibrary() {
         try {
@@ -209,31 +293,68 @@
           data.files.forEach(file => {
             const isImage = /\.(jpe?g|png|gif|webp|svg)$/i.test(file.key);
             const isVideo = /\.(mp4|webm|ogg|mov|avi)$/i.test(file.key);
-            const item = document.createElement('a');
+
+            const item = document.createElement('div');
             item.className = 'grid-item';
-            item.href = file.url;
-            item.target = '_blank';
-            if (isImage) {
-              const img = document.createElement('img');
-              img.src = file.url;
-              img.alt = file.key;
-              item.appendChild(img);
-            } else if (isVideo) {
-              const vid = document.createElement('video');
-              vid.src = file.url;
-              vid.muted = true;
-              vid.preload = 'metadata';
-              item.appendChild(vid);
+
+            // Thumbnail
+            let mediaElem;
+            if (isVideo) {
+              mediaElem = document.createElement('video');
+              mediaElem.src = file.url;
+              mediaElem.className = 'video-thumb';
+              mediaElem.muted = true;
+              mediaElem.preload = 'metadata';
+              mediaElem.playsInline = true;
             } else {
-              const placeholder = document.createElement('div');
-              placeholder.className = 'placeholder';
-              placeholder.innerHTML = '&#128196;'; // file icon
-              item.appendChild(placeholder);
+              mediaElem = document.createElement('img');
+              mediaElem.src = file.url;
+              mediaElem.alt = file.key;
+              mediaElem.className = 'thumb';
+              mediaElem.loading = 'lazy';
             }
+            mediaElem.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openPreview(file.url, isVideo);
+            });
+            item.appendChild(mediaElem);
+
+            // Info
             const info = document.createElement('div');
             info.className = 'info';
-            info.textContent = file.key.substring(0, 20) + (file.key.length > 20 ? '…' : '') + ' · ' + formatBytes(file.size);
+            info.innerHTML = `<div class="name" title="${file.key}">${file.key}</div><div class="size">${formatBytes(file.size)}</div>`;
+
+            // URL and copy button
+            const urlRow = document.createElement('div');
+            urlRow.className = 'url-row';
+            const urlSpan = document.createElement('span');
+            urlSpan.className = 'url-text';
+            urlSpan.textContent = file.url;
+            urlSpan.title = file.url;
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'copy-btn';
+            copyBtn.textContent = 'Copy';
+            copyBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              copyToClipboard(file.url, copyBtn);
+            });
+            urlRow.appendChild(urlSpan);
+            urlRow.appendChild(copyBtn);
+            info.appendChild(urlRow);
+
             item.appendChild(info);
+
+            // Delete button
+            const delBtn = document.createElement('span');
+            delBtn.className = 'delete-btn';
+            delBtn.innerHTML = '&#128465;';
+            delBtn.title = 'Delete';
+            delBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              deleteFile(file.key, item);
+            });
+            item.appendChild(delBtn);
+
             grid.appendChild(item);
           });
         } catch (err) {
