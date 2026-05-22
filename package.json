@@ -1,5 +1,5 @@
 {
-  "name": "r2-store",
+  "name": "r2-uploader",
   "version": "1.0.0",
   "scripts": {
     "start": "node server.js"
@@ -7,6 +7,6 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",
     "express": "^4.19.2",
-    "multer": "^1.4.5-lts.1"
+    "busboy": "^1.6.0"
   }
 }
