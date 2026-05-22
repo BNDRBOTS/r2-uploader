@@ -14,7 +14,7 @@ const R2_SECRET_KEY = process.env.R2_SECRET_ACCESS_KEY;
 const R2_BUCKET = process.env.R2_BUCKET_NAME || 'bndrllc-store-images';
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE_MB || '5000', 10) * 1024 * 1024;
 const ALLOWED_MIMES = /^(image\/(jpeg|png|gif|webp|svg\+xml)|video\/(mp4|webm|ogg|quicktime|x-msvideo))$/i;
-const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD; // if not set, no protection
+const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD; // if not set, everything is open
 
 if (!R2_ENDPOINT || !R2_ACCESS_KEY || !R2_SECRET_KEY) {
   console.error('Missing R2 credentials in environment variables.');
@@ -62,17 +62,26 @@ function sanitizeFilename(raw) {
 function authMiddleware(req, res, next) {
   if (!ACCESS_PASSWORD) return next(); // no password set, skip
 
-  // Check for auth cookie
   const token = req.cookies?.auth_token;
-  if (token && token === crypto.createHmac('sha256', ACCESS_PASSWORD).update('auth').digest('hex')) {
+  const validToken = crypto
+    .createHmac('sha256', ACCESS_PASSWORD)
+    .update('auth')
+    .digest('hex');
+  if (token && token === validToken) return next();
+
+  // Allow public access only to GET /files/:key so links work everywhere
+  if (req.method === 'GET' && req.path.startsWith('/files/')) {
     return next();
   }
 
-  // API routes return 401, page routes redirect to login (but we serve login page instead)
-  if (req.path.startsWith('/files') || req.path === '/upload' || req.path === '/list') {
+  // Everything else (upload, list, delete, rename) requires auth
+  if (
+    req.path === '/upload' ||
+    req.path === '/list' ||
+    req.path.startsWith('/files')
+  ) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  // For the main page, we'll serve a login prompt – we do that by letting the request go to static, but we'll check in index.html
   next();
 }
 
@@ -119,10 +128,10 @@ app.post('/logout', (req, res) => {
 // ---------- Serve static files (public folder) ----------
 app.use(express.static('public'));
 
-// ---------- Protect routes if password is set ----------
+// ---------- Protect routes ----------
 app.use(authMiddleware);
 
-// ---------- Upload endpoint (true streaming via multipart) ----------
+// ---------- Upload endpoint (streaming) ----------
 app.post('/upload', (req, res) => {
   const results = [];
   let aborted = false;
@@ -194,11 +203,10 @@ app.post('/upload', (req, res) => {
   });
 
   req.on('aborted', () => { aborted = true; });
-
   req.pipe(busboy);
 });
 
-// ---------- File serving proxy ----------
+// ---------- File serving proxy (PUBLIC, even with password) ----------
 app.get('/files/:key', async (req, res) => {
   const key = req.params.key;
   try {
@@ -215,7 +223,7 @@ app.get('/files/:key', async (req, res) => {
   }
 });
 
-// ---------- Delete file ----------
+// ---------- Delete file (protected) ----------
 app.delete('/files/:key', async (req, res) => {
   const key = req.params.key;
   try {
@@ -227,7 +235,7 @@ app.delete('/files/:key', async (req, res) => {
   }
 });
 
-// ---------- Rename file (copy + delete) ----------
+// ---------- Rename file (protected) ----------
 app.patch('/files/:key', express.json(), async (req, res) => {
   const oldKey = req.params.key;
   const { newName } = req.body;
@@ -268,7 +276,7 @@ app.patch('/files/:key', express.json(), async (req, res) => {
   }
 });
 
-// ---------- Library ----------
+// ---------- Library (protected) ----------
 app.get('/list', async (req, res) => {
   try {
     const command = new ListObjectsV2Command({ Bucket: R2_BUCKET });
