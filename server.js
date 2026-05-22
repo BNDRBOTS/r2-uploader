@@ -29,6 +29,24 @@ const s3 = new S3Client({
   forcePathStyle: true,
 });
 
+// ---------- Helper: map extension to MIME type ----------
+function guessMimeType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  const map = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.ogg': 'video/ogg',
+    '.mov': 'video/quicktime',
+    '.avi': 'video/x-msvideo',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
 // ---------- Serve static files ----------
 app.use(express.static('public'));
 
@@ -44,17 +62,24 @@ app.post('/upload', (req, res) => {
 
   // Handle file stream
   busboy.on('file', (fieldname, fileStream, info) => {
-    const { filename, mimeType } = info;
+    const { filename } = info;
+    let mimeType = info.mimeType;
 
-    // Validate mime type
+    // If browser omitted Content-Type, infer from filename
+    if (!mimeType || !ALLOWED_MIMES.test(mimeType)) {
+      mimeType = guessMimeType(filename);
+    }
+
+    // Final validation
     if (!ALLOWED_MIMES.test(mimeType)) {
-      fileStream.resume(); // drain the stream
+      fileStream.resume();
       results.push({ originalName: filename, success: false, error: `Unsupported file type: ${mimeType}` });
       return;
     }
 
     const ext = path.extname(filename) || `.${mimeType.split('/')[1]}`;
     const safeName = `${crypto.randomUUID()}${ext}`;
+
     const uploadPromise = (async () => {
       try {
         await s3.send(new PutObjectCommand({
@@ -67,32 +92,25 @@ app.post('/upload', (req, res) => {
         results.push({ originalName: filename, success: true, url: publicUrl, filename: safeName });
       } catch (err) {
         console.error(`Upload failed for ${filename}:`, err);
-        // Drain the stream if upload failed to avoid hanging
         fileStream.resume();
         results.push({ originalName: filename, success: false, error: 'Upload to storage failed.' });
       }
     })();
 
-    // Track promise per file (we'll wait for all later)
     results.__promises = results.__promises || [];
     results.__promises.push(uploadPromise);
   });
 
-  // Handle form field (we ignore them)
   busboy.on('field', () => {});
 
-  // When all files are processed
   busboy.on('finish', async () => {
     if (aborted) return;
-    // Wait for all upload promises to settle
     const promises = results.__promises || [];
     delete results.__promises;
     await Promise.allSettled(promises);
-    // Send all results
     res.json({ success: results.length > 0, files: results });
   });
 
-  // Handle errors (e.g., file too large)
   busboy.on('error', (err) => {
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ success: false, error: 'File too large.' });
