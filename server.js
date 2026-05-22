@@ -1,5 +1,5 @@
 const express = require('express');
-const { S3Client, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3');
 const { Upload } = require('@aws-sdk/lib-storage');
 const path = require('path');
 const crypto = require('crypto');
@@ -46,6 +46,19 @@ function guessMimeType(filename) {
     '.avi': 'video/x-msvideo',
   };
   return map[ext] || 'application/octet-stream';
+}
+
+// ---------- Helper: sanitize a user-supplied filename ----------
+function sanitizeFilename(raw) {
+  // Remove any character that is not alphanumeric, dash, underscore, or dot
+  let safe = raw.replace(/[^a-zA-Z0-9_\-.]/g, '_');
+  // Collapse multiple dots
+  safe = safe.replace(/\.{2,}/g, '.');
+  // Remove leading dot if present
+  safe = safe.replace(/^\./, '');
+  // If empty, fallback
+  if (!safe) safe = 'file';
+  return safe;
 }
 
 // ---------- Serve static files ----------
@@ -158,6 +171,52 @@ app.delete('/files/:key', async (req, res) => {
   } catch (err) {
     console.error('Delete error:', err);
     res.status(500).json({ success: false, error: 'Failed to delete file.' });
+  }
+});
+
+// ---------- Rename file (copy + delete) ----------
+app.patch('/files/:key', express.json(), async (req, res) => {
+  const oldKey = req.params.key;
+  const { newName } = req.body;
+
+  if (!newName || typeof newName !== 'string' || newName.trim().length === 0) {
+    return res.status(400).json({ success: false, error: 'A valid new name is required.' });
+  }
+
+  // Keep original extension if the new name doesn't include one
+  const oldExt = path.extname(oldKey);
+  const newExt = path.extname(newName);
+  let newKey;
+  if (newExt) {
+    // User provided an extension, sanitize full name
+    newKey = sanitizeFilename(newName);
+  } else {
+    // Preserve the original extension
+    const baseName = sanitizeFilename(newName);
+    newKey = baseName + oldExt;
+  }
+
+  if (newKey === oldKey) {
+    return res.json({ success: true, newKey, message: 'Name unchanged.' });
+  }
+
+  try {
+    // Copy to new key
+    await s3.send(new CopyObjectCommand({
+      Bucket: R2_BUCKET,
+      CopySource: `${R2_BUCKET}/${oldKey}`,
+      Key: newKey,
+    }));
+    // Delete the old key
+    await s3.send(new DeleteObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: oldKey,
+    }));
+    const newUrl = `https://${req.hostname}/files/${newKey}`;
+    res.json({ success: true, newKey, url: newUrl });
+  } catch (err) {
+    console.error('Rename error:', err);
+    res.status(500).json({ success: false, error: 'Failed to rename file.' });
   }
 });
 
