@@ -1,5 +1,6 @@
 const express = require('express');
-const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3');
+const { S3Client, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3');
+const { Upload } = require('@aws-sdk/lib-storage');
 const path = require('path');
 const crypto = require('crypto');
 const Busboy = require('busboy');
@@ -11,7 +12,7 @@ const R2_ENDPOINT = process.env.R2_ENDPOINT;
 const R2_ACCESS_KEY = process.env.R2_ACCESS_KEY_ID;
 const R2_SECRET_KEY = process.env.R2_SECRET_ACCESS_KEY;
 const R2_BUCKET = process.env.R2_BUCKET_NAME || 'bndrllc-store-images';
-const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE_MB || '5000', 10) * 1024 * 1024; // default 5 GB
+const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE_MB || '5000', 10) * 1024 * 1024;
 const ALLOWED_MIMES = /^(image\/(jpeg|png|gif|webp|svg\+xml)|video\/(mp4|webm|ogg|quicktime|x-msvideo))$/i;
 
 if (!R2_ENDPOINT || !R2_ACCESS_KEY || !R2_SECRET_KEY) {
@@ -27,9 +28,6 @@ const s3 = new S3Client({
     secretAccessKey: R2_SECRET_KEY,
   },
   forcePathStyle: true,
-  // Disable checksums entirely – required for streaming uploads from busboy
-  requestChecksumCalculation: 'WHEN_REQUIRED',
-  responseChecksumValidation: 'WHEN_REQUIRED',
 });
 
 // ---------- Helper: map extension to MIME type ----------
@@ -53,7 +51,7 @@ function guessMimeType(filename) {
 // ---------- Serve static files ----------
 app.use(express.static('public'));
 
-// ---------- Upload endpoint (streaming, multiple files) ----------
+// ---------- Upload endpoint (true streaming via multipart) ----------
 app.post('/upload', (req, res) => {
   const results = [];
   let aborted = false;
@@ -67,6 +65,7 @@ app.post('/upload', (req, res) => {
     const { filename } = info;
     let mimeType = info.mimeType;
 
+    // Fallback if browser omits Content-Type
     if (!mimeType || !ALLOWED_MIMES.test(mimeType)) {
       mimeType = guessMimeType(filename);
     }
@@ -82,12 +81,19 @@ app.post('/upload', (req, res) => {
 
     const uploadPromise = (async () => {
       try {
-        await s3.send(new PutObjectCommand({
-          Bucket: R2_BUCKET,
-          Key: safeName,
-          Body: fileStream,
-          ContentType: mimeType,
-        }));
+        const upload = new Upload({
+          client: s3,
+          params: {
+            Bucket: R2_BUCKET,
+            Key: safeName,
+            Body: fileStream,
+            ContentType: mimeType,
+          },
+          // Automatic multipart: no ContentLength needed
+          leavePartsOnError: false,
+        });
+
+        await upload.done();
         const publicUrl = `https://${req.hostname}/files/${safeName}`;
         results.push({ originalName: filename, success: true, url: publicUrl, filename: safeName });
       } catch (err) {
