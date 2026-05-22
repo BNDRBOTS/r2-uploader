@@ -1,5 +1,5 @@
 const express = require('express');
-const { S3Client, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3');
+const { S3Client, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3');
 const { Upload } = require('@aws-sdk/lib-storage');
 const path = require('path');
 const crypto = require('crypto');
@@ -14,6 +14,7 @@ const R2_SECRET_KEY = process.env.R2_SECRET_ACCESS_KEY;
 const R2_BUCKET = process.env.R2_BUCKET_NAME || 'bndrllc-store-images';
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE_MB || '5000', 10) * 1024 * 1024;
 const ALLOWED_MIMES = /^(image\/(jpeg|png|gif|webp|svg\+xml)|video\/(mp4|webm|ogg|quicktime|x-msvideo))$/i;
+const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD; // if not set, no protection
 
 if (!R2_ENDPOINT || !R2_ACCESS_KEY || !R2_SECRET_KEY) {
   console.error('Missing R2 credentials in environment variables.');
@@ -48,8 +49,78 @@ function guessMimeType(filename) {
   return map[ext] || 'application/octet-stream';
 }
 
-// ---------- Serve static files ----------
+// ---------- Helper: sanitize a user-supplied filename ----------
+function sanitizeFilename(raw) {
+  let safe = raw.replace(/[^a-zA-Z0-9_\-.]/g, '_');
+  safe = safe.replace(/\.{2,}/g, '.');
+  safe = safe.replace(/^\./, '');
+  if (!safe) safe = 'file';
+  return safe;
+}
+
+// ---------- Authentication middleware ----------
+function authMiddleware(req, res, next) {
+  if (!ACCESS_PASSWORD) return next(); // no password set, skip
+
+  // Check for auth cookie
+  const token = req.cookies?.auth_token;
+  if (token && token === crypto.createHmac('sha256', ACCESS_PASSWORD).update('auth').digest('hex')) {
+    return next();
+  }
+
+  // API routes return 401, page routes redirect to login (but we serve login page instead)
+  if (req.path.startsWith('/files') || req.path === '/upload' || req.path === '/list') {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  // For the main page, we'll serve a login prompt – we do that by letting the request go to static, but we'll check in index.html
+  next();
+}
+
+// Cookie parser (simple)
+app.use((req, res, next) => {
+  const cookieHeader = req.headers.cookie;
+  req.cookies = {};
+  if (cookieHeader) {
+    cookieHeader.split(';').forEach(c => {
+      const parts = c.split('=');
+      if (parts.length >= 2) {
+        req.cookies[parts[0].trim()] = parts.slice(1).join('=').trim();
+      }
+    });
+  }
+  next();
+});
+
+// ---------- Login endpoint ----------
+app.post('/login', express.json(), (req, res) => {
+  if (!ACCESS_PASSWORD) {
+    return res.json({ success: true, message: 'No password set.' });
+  }
+  const { password } = req.body;
+  if (password === ACCESS_PASSWORD) {
+    const token = crypto.createHmac('sha256', ACCESS_PASSWORD).update('auth').digest('hex');
+    res.cookie('auth_token', token, {
+      httpOnly: true,
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      path: '/',
+    });
+    return res.json({ success: true });
+  }
+  res.status(401).json({ success: false, error: 'Incorrect password.' });
+});
+
+// ---------- Logout endpoint ----------
+app.post('/logout', (req, res) => {
+  res.clearCookie('auth_token', { path: '/' });
+  res.json({ success: true });
+});
+
+// ---------- Serve static files (public folder) ----------
 app.use(express.static('public'));
+
+// ---------- Protect routes if password is set ----------
+app.use(authMiddleware);
 
 // ---------- Upload endpoint (true streaming via multipart) ----------
 app.post('/upload', (req, res) => {
@@ -65,7 +136,6 @@ app.post('/upload', (req, res) => {
     const { filename } = info;
     let mimeType = info.mimeType;
 
-    // Fallback if browser omits Content-Type
     if (!mimeType || !ALLOWED_MIMES.test(mimeType)) {
       mimeType = guessMimeType(filename);
     }
@@ -89,10 +159,8 @@ app.post('/upload', (req, res) => {
             Body: fileStream,
             ContentType: mimeType,
           },
-          // Automatic multipart: no ContentLength needed
           leavePartsOnError: false,
         });
-
         await upload.done();
         const publicUrl = `https://${req.hostname}/files/${safeName}`;
         results.push({ originalName: filename, success: true, url: publicUrl, filename: safeName });
@@ -125,9 +193,7 @@ app.post('/upload', (req, res) => {
     return res.status(500).json({ success: false, error: 'Upload failed.' });
   });
 
-  req.on('aborted', () => {
-    aborted = true;
-  });
+  req.on('aborted', () => { aborted = true; });
 
   req.pipe(busboy);
 });
@@ -158,6 +224,47 @@ app.delete('/files/:key', async (req, res) => {
   } catch (err) {
     console.error('Delete error:', err);
     res.status(500).json({ success: false, error: 'Failed to delete file.' });
+  }
+});
+
+// ---------- Rename file (copy + delete) ----------
+app.patch('/files/:key', express.json(), async (req, res) => {
+  const oldKey = req.params.key;
+  const { newName } = req.body;
+
+  if (!newName || typeof newName !== 'string' || newName.trim().length === 0) {
+    return res.status(400).json({ success: false, error: 'A valid new name is required.' });
+  }
+
+  const oldExt = path.extname(oldKey);
+  const newExt = path.extname(newName);
+  let newKey;
+  if (newExt) {
+    newKey = sanitizeFilename(newName);
+  } else {
+    const baseName = sanitizeFilename(newName);
+    newKey = baseName + oldExt;
+  }
+
+  if (newKey === oldKey) {
+    return res.json({ success: true, newKey, message: 'Name unchanged.' });
+  }
+
+  try {
+    await s3.send(new CopyObjectCommand({
+      Bucket: R2_BUCKET,
+      CopySource: `${R2_BUCKET}/${oldKey}`,
+      Key: newKey,
+    }));
+    await s3.send(new DeleteObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: oldKey,
+    }));
+    const newUrl = `https://${req.hostname}/files/${newKey}`;
+    res.json({ success: true, newKey, url: newUrl });
+  } catch (err) {
+    console.error('Rename error:', err);
+    res.status(500).json({ success: false, error: 'Failed to rename file.' });
   }
 });
 
