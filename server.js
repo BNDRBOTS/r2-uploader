@@ -27,6 +27,9 @@ const s3 = new S3Client({
     secretAccessKey: R2_SECRET_KEY,
   },
   forcePathStyle: true,
+  // Disable checksums entirely – required for streaming uploads from busboy
+  requestChecksumCalculation: 'WHEN_REQUIRED',
+  responseChecksumValidation: 'WHEN_REQUIRED',
 });
 
 // ---------- Helper: map extension to MIME type ----------
@@ -57,20 +60,17 @@ app.post('/upload', (req, res) => {
 
   const busboy = Busboy({
     headers: req.headers,
-    limits: { fileSize: MAX_FILE_SIZE, files: 20 }, // max 20 files per request
+    limits: { fileSize: MAX_FILE_SIZE, files: 20 },
   });
 
-  // Handle file stream
   busboy.on('file', (fieldname, fileStream, info) => {
     const { filename } = info;
     let mimeType = info.mimeType;
 
-    // If browser omitted Content-Type, infer from filename
     if (!mimeType || !ALLOWED_MIMES.test(mimeType)) {
       mimeType = guessMimeType(filename);
     }
 
-    // Final validation
     if (!ALLOWED_MIMES.test(mimeType)) {
       fileStream.resume();
       results.push({ originalName: filename, success: false, error: `Unsupported file type: ${mimeType}` });
@@ -126,7 +126,7 @@ app.post('/upload', (req, res) => {
   req.pipe(busboy);
 });
 
-// ---------- File serving proxy (from R2) ----------
+// ---------- File serving proxy ----------
 app.get('/files/:key', async (req, res) => {
   const key = req.params.key;
   try {
@@ -143,7 +143,7 @@ app.get('/files/:key', async (req, res) => {
   }
 });
 
-// ---------- Delete file endpoint ----------
+// ---------- Delete file ----------
 app.delete('/files/:key', async (req, res) => {
   const key = req.params.key;
   try {
@@ -155,7 +155,7 @@ app.delete('/files/:key', async (req, res) => {
   }
 });
 
-// ---------- Library endpoint ----------
+// ---------- Library ----------
 app.get('/list', async (req, res) => {
   try {
     const command = new ListObjectsV2Command({ Bucket: R2_BUCKET });
