@@ -20,10 +20,16 @@
     .dropzone p { font-size: 0.95rem; color: #4b5563; margin: 0; }
     .dropzone .supported { font-size: 0.8rem; color: #9ca3af; margin-top: 8px; }
     input[type="file"] { display: none; }
-    .progress-wrap { margin-top: 20px; display: none; }
-    .progress-bar-bg { width: 100%; height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+    .upload-list { margin-top: 20px; }
+    .upload-item { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+    .upload-item .name { font-weight: 500; font-size: 0.9rem; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .progress-wrap { display: flex; align-items: center; gap: 8px; }
+    .progress-bar-bg { width: 100%; height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; flex: 1; }
     .progress-bar-fill { height: 100%; width: 0%; background: #3b82f6; border-radius: 999px; transition: width 0.15s linear; }
-    .progress-text { font-size: 0.85rem; color: #4b5563; margin-top: 6px; display: flex; justify-content: space-between; }
+    .progress-text { font-size: 0.8rem; color: #4b5563; white-space: nowrap; }
+    .status-badge { font-size: 0.8rem; margin-top: 4px; }
+    .status-badge.success { color: #166534; }
+    .status-badge.error { color: #991b1b; }
     .message { margin-top: 20px; padding: 12px 16px; border-radius: 8px; font-size: 0.9rem; display: none; }
     .message.success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; display: block; }
     .message.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; display: block; }
@@ -32,7 +38,7 @@
     button { background: #3b82f6; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; width: 100%; margin-top: 12px; transition: background 0.2s; }
     button:hover { background: #2563eb; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    /* Library grid */
+    /* Library grid (unchanged) */
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; }
     .grid-item { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #e5e7eb; background: #fff; transition: box-shadow 0.2s; display: flex; flex-direction: column; }
     .grid-item:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
@@ -48,7 +54,6 @@
     .delete-btn { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.9); border: none; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #ef4444; font-size: 1rem; line-height: 1; }
     .delete-btn:hover { background: #fff; }
     .empty-state { text-align: center; color: #9ca3af; margin-top: 32px; }
-    /* Modal */
     .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; }
     .modal.open { display: flex; }
     .modal-content { max-width: 90vw; max-height: 90vh; position: relative; }
@@ -67,20 +72,14 @@
     <!-- Upload View -->
     <div id="uploadView" class="view active">
       <h1>Upload</h1>
-      <p class="sub">Images &amp; videos · Max 100 MB</p>
+      <p class="sub">Images &amp; videos · Max 5 GB per file · Multiple files allowed</p>
       <div id="dropzone" class="dropzone">
         <span class="file-icon">&#128193;</span>
-        <p>Choose a file or drag it here</p>
+        <p>Choose files or drag them here</p>
         <p class="supported">JPEG, PNG, GIF, WebP, SVG, MP4, WebM, MOV, AVI</p>
       </div>
-      <input type="file" id="fileInput" accept="image/*,video/*">
-      <div id="progressWrap" class="progress-wrap">
-        <div class="progress-bar-bg"><div id="progressFill" class="progress-bar-fill"></div></div>
-        <div class="progress-text">
-          <span id="progressPercent">0%</span>
-          <span id="progressSize">0 / 0 MB</span>
-        </div>
-      </div>
+      <input type="file" id="fileInput" accept="image/*,video/*" multiple>
+      <div id="uploadList" class="upload-list"></div>
       <div id="message" class="message"></div>
     </div>
 
@@ -94,7 +93,7 @@
     </div>
   </div>
 
-  <!-- Image/Video Preview Modal -->
+  <!-- Modal -->
   <div id="previewModal" class="modal">
     <div class="modal-content">
       <span class="modal-close" id="closeModal">&times;</span>
@@ -117,15 +116,12 @@
         });
       });
 
-      // ----- Upload logic -----
+      // ----- Upload logic (multiple files, sequential) -----
       const dropzone = document.getElementById('dropzone');
       const fileInput = document.getElementById('fileInput');
-      const progressWrap = document.getElementById('progressWrap');
-      const progressFill = document.getElementById('progressFill');
-      const progressPercent = document.getElementById('progressPercent');
-      const progressSize = document.getElementById('progressSize');
+      const uploadList = document.getElementById('uploadList');
       const messageDiv = document.getElementById('message');
-      const MAX_FILE_SIZE_MB = 100;
+      const MAX_FILE_SIZE_MB = 5000; // 5 GB
       const MAX_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
       function showMessage(text, type) {
@@ -139,64 +135,126 @@
       }
       function formatBytes(bytes) {
         if (bytes === 0) return '0 MB';
+        if (bytes > 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
       }
-      function resetUI() {
-        progressWrap.style.display = 'none';
-        progressFill.style.width = '0%';
-        progressPercent.textContent = '0%';
-        progressSize.textContent = '0 / 0 MB';
-      }
+
       function handleFiles(files) {
         if (!files || files.length === 0) return;
-        const file = files[0];
-        if (file.size > MAX_BYTES) {
-          showMessage(`File too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`, 'error');
-          return;
-        }
         hideMessage();
-        uploadFile(file);
+        const filesArray = Array.from(files);
+        // Upload one after another
+        uploadSequentially(filesArray);
       }
-      function uploadFile(file) {
-        progressWrap.style.display = 'block';
-        const formData = new FormData();
-        formData.append('file', file);
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/upload', true);
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) {
-            const percent = Math.round((e.loaded / e.total) * 100);
-            progressFill.style.width = percent + '%';
-            progressPercent.textContent = percent + '%';
-            progressSize.textContent = formatBytes(e.loaded) + ' / ' + formatBytes(e.total);
+
+      async function uploadSequentially(files) {
+        uploadList.innerHTML = '';
+        for (const file of files) {
+          if (file.size > MAX_BYTES) {
+            const item = createUploadItem(file.name);
+            item.querySelector('.status-badge').textContent = 'File too large';
+            item.querySelector('.status-badge').classList.add('error');
+            uploadList.appendChild(item);
+            continue;
           }
-        });
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const resp = JSON.parse(xhr.responseText);
-              if (resp.success) {
-                showMessage(`Uploaded! <a href="${resp.url}" target="_blank">${resp.url}</a>`, 'success');
-                if (document.getElementById('libraryView').classList.contains('active')) loadLibrary();
-              } else {
-                showMessage(resp.error || 'Unknown error.', 'error');
-              }
-            } catch {
-              showMessage('Unexpected server response.', 'error');
+          try {
+            await uploadSingleFile(file);
+          } catch (err) {
+            console.error('Upload failed:', err);
+          }
+        }
+        // Refresh library if visible
+        if (document.getElementById('libraryView').classList.contains('active')) loadLibrary();
+      }
+
+      function createUploadItem(filename) {
+        const div = document.createElement('div');
+        div.className = 'upload-item';
+        div.innerHTML = `
+          <div class="name" title="${filename}">${filename}</div>
+          <div class="progress-wrap">
+            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:0%"></div></div>
+            <span class="progress-text">0%</span>
+          </div>
+          <div class="status-badge"></div>
+        `;
+        return div;
+      }
+
+      function uploadSingleFile(file) {
+        return new Promise((resolve, reject) => {
+          const item = createUploadItem(file.name);
+          uploadList.appendChild(item);
+          const fill = item.querySelector('.progress-bar-fill');
+          const text = item.querySelector('.progress-text');
+          const status = item.querySelector('.status-badge');
+
+          const formData = new FormData();
+          formData.append('file', file);  // field name "file" (can be multiple)
+
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/upload', true);
+
+          xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+              const percent = Math.round((e.loaded / e.total) * 100);
+              fill.style.width = percent + '%';
+              text.textContent = percent + '%';
             }
-          } else {
-            let errMsg = `Upload failed with status ${xhr.status}`;
-            try {
-              const errResp = JSON.parse(xhr.responseText);
-              if (errResp.error) errMsg = errResp.error;
-            } catch {}
-            showMessage(errMsg, 'error');
-          }
+          });
+
+          xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const resp = JSON.parse(xhr.responseText);
+                // For a single file, resp.files[0] exists
+                const fileResult = resp.files && resp.files[0];
+                if (fileResult && fileResult.success) {
+                  status.textContent = 'Uploaded';
+                  status.classList.add('success');
+                  showMessage(`Uploaded: <a href="${fileResult.url}" target="_blank">${fileResult.url}</a>`, 'success');
+                  resolve(fileResult);
+                } else {
+                  const err = fileResult ? fileResult.error : 'Unknown error';
+                  status.textContent = err;
+                  status.classList.add('error');
+                  reject(new Error(err));
+                }
+              } catch {
+                status.textContent = 'Invalid response';
+                status.classList.add('error');
+                reject(new Error('Invalid response'));
+              }
+            } else {
+              let errMsg = `HTTP ${xhr.status}`;
+              try {
+                const errResp = JSON.parse(xhr.responseText);
+                if (errResp.error) errMsg = errResp.error;
+              } catch {}
+              status.textContent = errMsg;
+              status.classList.add('error');
+              reject(new Error(errMsg));
+            }
+          });
+
+          xhr.addEventListener('error', () => {
+            status.textContent = 'Network error';
+            status.classList.add('error');
+            reject(new Error('Network error'));
+          });
+
+          xhr.addEventListener('abort', () => {
+            status.textContent = 'Aborted';
+            status.classList.add('error');
+            reject(new Error('Aborted'));
+          });
+
+          xhr.send(formData);
+          // Scroll to the new item
+          item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         });
-        xhr.addEventListener('error', () => showMessage('Network error.', 'error'));
-        xhr.addEventListener('abort', () => showMessage('Upload aborted.', 'error'));
-        xhr.send(formData);
       }
+
       dropzone.addEventListener('click', () => fileInput.click());
       fileInput.addEventListener('change', () => handleFiles(fileInput.files));
       dropzone.addEventListener('dragover', (e) => {
@@ -210,7 +268,7 @@
         handleFiles(e.dataTransfer.files);
       });
 
-      // ----- Library logic -----
+      // ----- Library logic (unchanged) -----
       const grid = document.getElementById('grid');
       const emptyMsg = document.getElementById('empty');
       const libError = document.getElementById('libError');
@@ -255,9 +313,7 @@
           const data = await res.json();
           if (data.success) {
             element.remove();
-            if (grid.children.length === 0) {
-              emptyMsg.style.display = 'block';
-            }
+            if (grid.children.length === 0) emptyMsg.style.display = 'block';
           } else {
             alert('Failed to delete: ' + data.error);
           }
@@ -268,14 +324,9 @@
 
       function copyToClipboard(text, button) {
         navigator.clipboard.writeText(text).then(() => {
-          const originalText = button.textContent;
           button.textContent = 'Copied!';
-          setTimeout(() => {
-            button.textContent = originalText;
-          }, 1500);
-        }).catch(() => {
-          alert('Could not copy link. Please copy manually.');
-        });
+          setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+        }).catch(() => alert('Could not copy link.'));
       }
 
       async function loadLibrary() {
@@ -286,18 +337,12 @@
           const res = await fetch('/list');
           const data = await res.json();
           if (!data.success) throw new Error(data.error || 'Failed to load');
-          if (!data.files.length) {
-            emptyMsg.style.display = 'block';
-            return;
-          }
+          if (!data.files.length) { emptyMsg.style.display = 'block'; return; }
           data.files.forEach(file => {
             const isImage = /\.(jpe?g|png|gif|webp|svg)$/i.test(file.key);
             const isVideo = /\.(mp4|webm|ogg|mov|avi)$/i.test(file.key);
-
             const item = document.createElement('div');
             item.className = 'grid-item';
-
-            // Thumbnail
             let mediaElem;
             if (isVideo) {
               mediaElem = document.createElement('video');
@@ -318,13 +363,9 @@
               openPreview(file.url, isVideo);
             });
             item.appendChild(mediaElem);
-
-            // Info
             const info = document.createElement('div');
             info.className = 'info';
             info.innerHTML = `<div class="name" title="${file.key}">${file.key}</div><div class="size">${formatBytes(file.size)}</div>`;
-
-            // URL and copy button
             const urlRow = document.createElement('div');
             urlRow.className = 'url-row';
             const urlSpan = document.createElement('span');
@@ -341,10 +382,7 @@
             urlRow.appendChild(urlSpan);
             urlRow.appendChild(copyBtn);
             info.appendChild(urlRow);
-
             item.appendChild(info);
-
-            // Delete button
             const delBtn = document.createElement('span');
             delBtn.className = 'delete-btn';
             delBtn.innerHTML = '&#128465;';
@@ -354,7 +392,6 @@
               deleteFile(file.key, item);
             });
             item.appendChild(delBtn);
-
             grid.appendChild(item);
           });
         } catch (err) {
