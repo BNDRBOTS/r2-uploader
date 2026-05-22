@@ -38,7 +38,7 @@
     button { background: #3b82f6; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; width: 100%; margin-top: 12px; transition: background 0.2s; }
     button:hover { background: #2563eb; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    /* Library grid (unchanged) */
+    /* Library grid */
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; }
     .grid-item { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #e5e7eb; background: #fff; transition: box-shadow 0.2s; display: flex; flex-direction: column; }
     .grid-item:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
@@ -51,9 +51,12 @@
     .url-text { font-size: 0.7rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
     .copy-btn { background: #e0e7ff; border: none; color: #3730a3; font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; font-weight: 500; }
     .copy-btn:active { background: #c7d2fe; }
-    .delete-btn { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.9); border: none; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #ef4444; font-size: 1rem; line-height: 1; }
-    .delete-btn:hover { background: #fff; }
+    .action-icons { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; }
+    .icon-btn { background: rgba(255,255,255,0.9); border: none; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1rem; line-height: 1; color: #374151; }
+    .icon-btn.danger { color: #ef4444; }
+    .icon-btn:hover { background: #fff; }
     .empty-state { text-align: center; color: #9ca3af; margin-top: 32px; }
+    /* Modal */
     .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 1000; align-items: center; justify-content: center; }
     .modal.open { display: flex; }
     .modal-content { max-width: 90vw; max-height: 90vh; position: relative; }
@@ -143,7 +146,6 @@
         if (!files || files.length === 0) return;
         hideMessage();
         const filesArray = Array.from(files);
-        // Upload one after another
         uploadSequentially(filesArray);
       }
 
@@ -163,7 +165,6 @@
             console.error('Upload failed:', err);
           }
         }
-        // Refresh library if visible
         if (document.getElementById('libraryView').classList.contains('active')) loadLibrary();
       }
 
@@ -190,7 +191,7 @@
           const status = item.querySelector('.status-badge');
 
           const formData = new FormData();
-          formData.append('file', file);  // field name "file" (can be multiple)
+          formData.append('file', file);
 
           const xhr = new XMLHttpRequest();
           xhr.open('POST', '/upload', true);
@@ -207,7 +208,6 @@
             if (xhr.status >= 200 && xhr.status < 300) {
               try {
                 const resp = JSON.parse(xhr.responseText);
-                // For a single file, resp.files[0] exists
                 const fileResult = resp.files && resp.files[0];
                 if (fileResult && fileResult.success) {
                   status.textContent = 'Uploaded';
@@ -250,7 +250,6 @@
           });
 
           xhr.send(formData);
-          // Scroll to the new item
           item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         });
       }
@@ -268,7 +267,7 @@
         handleFiles(e.dataTransfer.files);
       });
 
-      // ----- Library logic (unchanged) -----
+      // ----- Library logic (with rename) -----
       const grid = document.getElementById('grid');
       const emptyMsg = document.getElementById('empty');
       const libError = document.getElementById('libError');
@@ -329,6 +328,29 @@
         }).catch(() => alert('Could not copy link.'));
       }
 
+      async function renameFile(oldKey, element) {
+        const currentName = oldKey;
+        const newName = prompt('Enter new name (extension optional):', currentName);
+        if (!newName || newName.trim() === '' || newName === currentName) return;
+
+        try {
+          const res = await fetch('/files/' + oldKey, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newName: newName.trim() })
+          });
+          const data = await res.json();
+          if (data.success) {
+            // Refresh the entire library to show updated name and link
+            loadLibrary();
+          } else {
+            alert('Rename failed: ' + (data.error || 'Unknown error'));
+          }
+        } catch (err) {
+          alert('Network error while renaming.');
+        }
+      }
+
       async function loadLibrary() {
         try {
           grid.innerHTML = '';
@@ -343,6 +365,7 @@
             const isVideo = /\.(mp4|webm|ogg|mov|avi)$/i.test(file.key);
             const item = document.createElement('div');
             item.className = 'grid-item';
+
             let mediaElem;
             if (isVideo) {
               mediaElem = document.createElement('video');
@@ -363,9 +386,11 @@
               openPreview(file.url, isVideo);
             });
             item.appendChild(mediaElem);
+
             const info = document.createElement('div');
             info.className = 'info';
             info.innerHTML = `<div class="name" title="${file.key}">${file.key}</div><div class="size">${formatBytes(file.size)}</div>`;
+
             const urlRow = document.createElement('div');
             urlRow.className = 'url-row';
             const urlSpan = document.createElement('span');
@@ -383,15 +408,33 @@
             urlRow.appendChild(copyBtn);
             info.appendChild(urlRow);
             item.appendChild(info);
-            const delBtn = document.createElement('span');
-            delBtn.className = 'delete-btn';
-            delBtn.innerHTML = '&#128465;';
+
+            // Action icons (rename + delete)
+            const actions = document.createElement('div');
+            actions.className = 'action-icons';
+
+            const renameBtn = document.createElement('button');
+            renameBtn.className = 'icon-btn';
+            renameBtn.innerHTML = '&#9998;'; // pencil
+            renameBtn.title = 'Rename';
+            renameBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              renameFile(file.key, item);
+            });
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'icon-btn danger';
+            delBtn.innerHTML = '&#128465;'; // trash
             delBtn.title = 'Delete';
             delBtn.addEventListener('click', (e) => {
               e.stopPropagation();
               deleteFile(file.key, item);
             });
-            item.appendChild(delBtn);
+
+            actions.appendChild(renameBtn);
+            actions.appendChild(delBtn);
+            item.appendChild(actions);
+
             grid.appendChild(item);
           });
         } catch (err) {
