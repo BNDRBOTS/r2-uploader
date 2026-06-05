@@ -39,7 +39,7 @@ Optionally add a password to lock the upload page and management features while 
 ## Quick Setup (One‑Click)
 
 1. Click the green **“Use this template”** button at the top of this repository to create your own copy on GitHub.
-2. Log in to [Railway](https://railway.app?referral=…) and click **New Project → Deploy from GitHub repo**.
+2. Log in to [Railway]([https://railway.app?referral=…](https://railway.com?referralCode=jARGAL)) and click **New Project → Deploy from GitHub repo**.
 3. Select your new repository. Railway will start building (it might show “Application failed to respond” at first – that’s okay).
 4. Add the required environment variables (see below).
 5. Set the public port to **8080**.
@@ -97,7 +97,7 @@ This is your **R2 Endpoint**. Save it with the keys.
 
 ### Step 5: Deploy to Railway
 
-1. Go to [Railway](https://railway.app?referral=…) and log in.
+1. Go to [Railway]([https://railway.app?referral=…](https://railway.com?referralCode=jARGAL)) and log in.
 2. Click **New Project → Deploy from GitHub repo**.
 3. Choose the repository you just created.
 4. Railway will start building. The first attempt may show “Application failed to respond” – don’t worry, we need to add the secret keys and fix the port.
