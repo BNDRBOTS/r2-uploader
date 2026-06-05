@@ -13,8 +13,8 @@ const R2_ACCESS_KEY = process.env.R2_ACCESS_KEY_ID;
 const R2_SECRET_KEY = process.env.R2_SECRET_ACCESS_KEY;
 const R2_BUCKET = process.env.R2_BUCKET_NAME || 'bndrllc-store-images';
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE_MB || '5000', 10) * 1024 * 1024;
-const ALLOWED_MIMES = /^(image\/(jpeg|png|gif|webp|svg\+xml)|video\/(mp4|webm|ogg|quicktime|x-msvideo))$/i;
-const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD; // if not set, everything is open
+const ALLOWED_MIMES = /^(image\/(jpeg|png|gif|webp|svg\+xml)|video\/(mp4|webm|ogg|quicktime|x-msvideo)|application\/(pdf|zip|x-zip-compressed))$/i;
+const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD; // if not set, no protection
 
 if (!R2_ENDPOINT || !R2_ACCESS_KEY || !R2_SECRET_KEY) {
   console.error('Missing R2 credentials in environment variables.');
@@ -45,6 +45,8 @@ function guessMimeType(filename) {
     '.ogg': 'video/ogg',
     '.mov': 'video/quicktime',
     '.avi': 'video/x-msvideo',
+    '.pdf': 'application/pdf',
+    '.zip': 'application/zip',
   };
   return map[ext] || 'application/octet-stream';
 }
@@ -276,19 +278,34 @@ app.patch('/files/:key', express.json(), async (req, res) => {
   }
 });
 
-// ---------- Library (protected) ----------
+// ---------- Library (with pagination) ----------
 app.get('/list', async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
     const command = new ListObjectsV2Command({ Bucket: R2_BUCKET });
     const data = await s3.send(command);
-    const files = (data.Contents || []).map(obj => ({
+    const allFiles = (data.Contents || []).map(obj => ({
       key: obj.Key,
       size: obj.Size,
       lastModified: obj.LastModified,
       url: `https://${req.hostname}/files/${obj.Key}`
     }));
-    files.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
-    res.json({ success: true, files });
+    // Sort newest first
+    allFiles.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+
+    const total = allFiles.length;
+    const startIndex = (page - 1) * limit;
+    const pageFiles = allFiles.slice(startIndex, startIndex + limit);
+
+    res.json({
+      success: true,
+      files: pageFiles,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (err) {
     console.error('List error:', err);
     res.status(500).json({ success: false, error: 'Failed to list files.' });
