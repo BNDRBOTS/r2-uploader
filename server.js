@@ -1,20 +1,38 @@
 const express = require('express');
-const { S3Client, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand, NoSuchKey } = require('@aws-sdk/client-s3');
+const compression = require('compression');
+const {
+  S3Client,
+  GetObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectCommand,
+  CopyObjectCommand,
+  NoSuchKey
+} = require('@aws-sdk/client-s3');
 const { Upload } = require('@aws-sdk/lib-storage');
 const path = require('path');
 const crypto = require('crypto');
 const Busboy = require('busboy');
+const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const morgan = require('morgan');
+const fs = require('fs');
 
+// ── App Initialisation ──
 const app = express();
+app.use(morgan('dev'));
+app.use(compression());
+app.use(express.json({ limit: '1mb' }));
 
-// ---------- Config from environment ----------
+// ── Config from environment ──
 const R2_ENDPOINT = process.env.R2_ENDPOINT;
 const R2_ACCESS_KEY = process.env.R2_ACCESS_KEY_ID;
 const R2_SECRET_KEY = process.env.R2_SECRET_ACCESS_KEY;
 const R2_BUCKET = process.env.R2_BUCKET_NAME || 'bndrllc-store-images';
-const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE_MB || '5000', 10) * 1024 * 1024;
-const ALLOWED_MIMES = /^(image\/(jpeg|png|gif|webp|svg\+xml)|video\/(mp4|webm|ogg|quicktime|x-msvideo))$/i;
-const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD; // if not set, everything is open
+const MAX_FILE_SIZE = (parseInt(process.env.MAX_FILE_SIZE_MB || '5000', 10) || 5000) * 1024 * 1024;
+const ALLOWED_MIMES = /^(image\/(jpeg|png|gif|webp|svg\+xml)|video\/(mp4|webm|ogg|quicktime|x-msvideo)|application\/(pdf|zip|x-zip-compressed))$/i;
+const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD;
 
 if (!R2_ENDPOINT || !R2_ACCESS_KEY || !R2_SECRET_KEY) {
   console.error('Missing R2 credentials in environment variables.');
@@ -31,7 +49,36 @@ const s3 = new S3Client({
   forcePathStyle: true,
 });
 
-// ---------- Helper: map extension to MIME type ----------
+// ── Security: Helmet & CSP ──
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+app.use(cookieParser());
+
+// ── Rate Limiting ──
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => res.status(429).json({ success: false, error: 'Too many requests, please try again later.' }),
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 50,
+  handler: (_req, res) => res.status(429).json({ success: false, error: 'Upload limit reached. Please wait.' }),
+});
+
+const actionLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 100,
+  handler: (_req, res) => res.status(429).json({ success: false, error: 'Too many actions. Please wait.' }),
+});
+
+// ── Helpers ──
 function guessMimeType(filename) {
   const ext = path.extname(filename).toLowerCase();
   const map = {
@@ -45,95 +92,143 @@ function guessMimeType(filename) {
     '.ogg': 'video/ogg',
     '.mov': 'video/quicktime',
     '.avi': 'video/x-msvideo',
+    '.pdf': 'application/pdf',
+    '.zip': 'application/zip',
   };
   return map[ext] || 'application/octet-stream';
 }
 
-// ---------- Helper: sanitize a user-supplied filename ----------
-function sanitizeFilename(raw) {
+function sanitizeFilename(raw, maxLen = 200) {
   let safe = raw.replace(/[^a-zA-Z0-9_\-.]/g, '_');
   safe = safe.replace(/\.{2,}/g, '.');
   safe = safe.replace(/^\./, '');
   if (!safe) safe = 'file';
-  return safe;
+  return safe.slice(0, maxLen);
 }
 
-// ---------- Authentication middleware ----------
+function getPublicUrl(req, key) {
+  return `https://${req.hostname}/files/${encodeURIComponent(key)}`;
+}
+
+function generateCSRFToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// ── CSRF Protection ──
+function csrfProtection(req, res, next) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  const cookieToken = req.cookies?.csrf_token;
+  const headerToken = req.headers['x-csrf-token'];
+  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
+  next();
+}
+
+// ── Authentication Middleware ──
 function authMiddleware(req, res, next) {
-  if (!ACCESS_PASSWORD) return next(); // no password set, skip
+  // if no password configured, everything is public
+  if (!ACCESS_PASSWORD) return next();
+
+  // always allow public access to the main page (login form)
+  if (req.method === 'GET' && req.path === '/') return next();
+
+  // allow public access to the health endpoint
+  if (req.method === 'GET' && req.path === '/health') return next();
 
   const token = req.cookies?.auth_token;
-  const validToken = crypto
-    .createHmac('sha256', ACCESS_PASSWORD)
-    .update('auth')
-    .digest('hex');
+  const validToken = crypto.createHmac('sha256', ACCESS_PASSWORD).update('auth').digest('hex');
   if (token && token === validToken) return next();
 
-  // Allow public access only to GET /files/:key so links work everywhere
-  if (req.method === 'GET' && req.path.startsWith('/files/')) {
+  // file serving is public
+  if ((req.method === 'GET' || req.method === 'HEAD') && req.path.startsWith('/files/')) {
     return next();
   }
 
-  // Everything else (upload, list, delete, rename) requires auth
-  if (
-    req.path === '/upload' ||
-    req.path === '/list' ||
-    req.path.startsWith('/files')
-  ) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  next();
+  return res.status(401).json({ error: 'Unauthorized' });
 }
 
-// Cookie parser (simple)
-app.use((req, res, next) => {
-  const cookieHeader = req.headers.cookie;
-  req.cookies = {};
-  if (cookieHeader) {
-    cookieHeader.split(';').forEach(c => {
-      const parts = c.split('=');
-      if (parts.length >= 2) {
-        req.cookies[parts[0].trim()] = parts.slice(1).join('=').trim();
-      }
-    });
+// ── Serve index.html with nonce-based CSP ──
+function serveIndexWithCSP(_req, res) {
+  const nonce = crypto.randomBytes(16).toString('base64');
+  const htmlPath = path.join(__dirname, 'public', 'index.html');
+  let html;
+  try {
+    html = fs.readFileSync(htmlPath, 'utf8');
+  } catch (err) {
+    console.error('Failed to read index.html:', err);
+    return res.status(500).send('Internal Server Error');
   }
-  next();
-});
+  html = html.replace(/NONCE_PLACEHOLDER/g, nonce);
+  res.set(
+    'Content-Security-Policy',
+    `default-src 'self'; ` +
+    `script-src 'nonce-${nonce}' 'strict-dynamic'; ` +
+    `style-src 'nonce-${nonce}'; ` +
+    `img-src 'self' data: blob: https:; ` +
+    `media-src 'self' blob: https:; ` +
+    `connect-src 'self'; ` +
+    `frame-ancestors 'none'; ` +
+    `base-uri 'self'; ` +
+    `form-action 'self';`
+  );
+  res.set('Cache-Control', 'no-store');
+  res.send(html);
+}
 
-// ---------- Login endpoint ----------
-app.post('/login', express.json(), (req, res) => {
+// ── Login (no CSRF needed) ──
+app.post('/login', authLimiter, express.json(), (req, res) => {
   if (!ACCESS_PASSWORD) {
-    return res.json({ success: true, message: 'No password set.' });
+    const csrfToken = generateCSRFToken();
+    const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    res.cookie('csrf_token', csrfToken, {
+      httpOnly: false,
+      sameSite: 'strict',
+      secure,
+      path: '/',
+    });
+    return res.json({ success: true, message: 'No password set.', csrfToken });
   }
   const { password } = req.body;
   if (password === ACCESS_PASSWORD) {
     const token = crypto.createHmac('sha256', ACCESS_PASSWORD).update('auth').digest('hex');
+    const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.cookie('auth_token', token, {
       httpOnly: true,
       sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      secure,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
       path: '/',
     });
-    return res.json({ success: true });
+    const csrfToken = generateCSRFToken();
+    res.cookie('csrf_token', csrfToken, {
+      httpOnly: false,
+      sameSite: 'strict',
+      secure,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
+    return res.json({ success: true, csrfToken });
   }
   res.status(401).json({ success: false, error: 'Incorrect password.' });
 });
 
-// ---------- Logout endpoint ----------
+// ── Apply global auth and CSRF ──
+app.use(authMiddleware);
+app.use(csrfProtection);
+
+// ── Logout (now protected) ──
 app.post('/logout', (req, res) => {
   res.clearCookie('auth_token', { path: '/' });
+  res.clearCookie('csrf_token', { path: '/' });
   res.json({ success: true });
 });
 
-// ---------- Serve static files (public folder) ----------
-app.use(express.static('public'));
-
-// ---------- Protect routes ----------
-app.use(authMiddleware);
-
-// ---------- Upload endpoint (streaming) ----------
-app.post('/upload', (req, res) => {
+// ── Upload (streaming, multi‑file) ──
+app.post('/upload', uploadLimiter, (req, res) => {
   const results = [];
+  const uploadPromises = [];
+  const activeStreams = new Set();
   let aborted = false;
 
   const busboy = Busboy({
@@ -141,14 +236,12 @@ app.post('/upload', (req, res) => {
     limits: { fileSize: MAX_FILE_SIZE, files: 20 },
   });
 
-  busboy.on('file', (fieldname, fileStream, info) => {
+  busboy.on('file', (_fieldname, fileStream, info) => {
     const { filename } = info;
     let mimeType = info.mimeType;
-
     if (!mimeType || !ALLOWED_MIMES.test(mimeType)) {
       mimeType = guessMimeType(filename);
     }
-
     if (!ALLOWED_MIMES.test(mimeType)) {
       fileStream.resume();
       results.push({ originalName: filename, success: false, error: `Unsupported file type: ${mimeType}` });
@@ -157,6 +250,8 @@ app.post('/upload', (req, res) => {
 
     const ext = path.extname(filename) || `.${mimeType.split('/')[1]}`;
     const safeName = `${crypto.randomUUID()}${ext}`;
+
+    activeStreams.add(fileStream);
 
     const uploadPromise = (async () => {
       try {
@@ -171,60 +266,112 @@ app.post('/upload', (req, res) => {
           leavePartsOnError: false,
         });
         await upload.done();
-        const publicUrl = `https://${req.hostname}/files/${safeName}`;
+        const publicUrl = getPublicUrl(req, safeName);
         results.push({ originalName: filename, success: true, url: publicUrl, filename: safeName });
       } catch (err) {
         console.error(`Upload failed for ${filename}:`, err);
-        fileStream.resume();
         results.push({ originalName: filename, success: false, error: 'Upload to storage failed.' });
+      } finally {
+        activeStreams.delete(fileStream);
+        if (!fileStream.destroyed) fileStream.resume();
       }
     })();
 
-    results.__promises = results.__promises || [];
-    results.__promises.push(uploadPromise);
+    uploadPromises.push(uploadPromise);
   });
-
-  busboy.on('field', () => {});
 
   busboy.on('finish', async () => {
     if (aborted) return;
-    const promises = results.__promises || [];
-    delete results.__promises;
-    await Promise.allSettled(promises);
+    await Promise.allSettled(uploadPromises);
     res.json({ success: results.length > 0, files: results });
   });
 
   busboy.on('error', (err) => {
+    if (aborted) return;
+    aborted = true;
+    for (const stream of activeStreams) {
+      if (!stream.destroyed) stream.destroy();
+    }
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ success: false, error: 'File too large.' });
+    }
+    if (err.code === 'LIMIT_FILES') {
+      return res.status(400).json({ success: false, error: 'Too many files. Maximum 20 per upload.' });
     }
     console.error('Busboy error:', err);
     return res.status(500).json({ success: false, error: 'Upload failed.' });
   });
 
-  req.on('aborted', () => { aborted = true; });
+  req.on('aborted', () => {
+    aborted = true;
+    for (const stream of activeStreams) {
+      if (!stream.destroyed) stream.destroy();
+    }
+    busboy.destroy();
+  });
+
   req.pipe(busboy);
 });
 
-// ---------- File serving proxy (PUBLIC, even with password) ----------
-app.get('/files/:key', async (req, res) => {
+// ── File serving with conditional requests ──
+async function serveFile(req, res, method) {
   const key = req.params.key;
   try {
-    const command = new GetObjectCommand({ Bucket: R2_BUCKET, Key: key });
-    const response = await s3.send(command);
-    res.set('Content-Type', response.ContentType || 'application/octet-stream');
+    const headCmd = new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key });
+    const headResp = await s3.send(headCmd);
+
+    res.set('Content-Type', headResp.ContentType || 'application/octet-stream');
+    res.set('Accept-Ranges', 'bytes');
     res.set('Cache-Control', 'public, max-age=31536000, immutable');
     res.set('Access-Control-Allow-Origin', '*');
-    response.Body.pipe(res);
+    if (headResp.ETag) res.set('ETag', headResp.ETag);
+    if (headResp.LastModified) res.set('Last-Modified', headResp.LastModified.toUTCString());
+
+    if (method === 'GET' && headResp.ETag && req.headers['if-none-match'] === headResp.ETag) {
+      return res.status(304).end();
+    }
+
+    if (method === 'HEAD') {
+      if (headResp.ContentLength !== undefined) {
+        res.set('Content-Length', headResp.ContentLength.toString());
+      }
+      return res.status(200).end();
+    }
+
+    const getParams = { Bucket: R2_BUCKET, Key: key };
+    if (req.headers.range) getParams.Range = req.headers.range;
+
+    const getCmd = new GetObjectCommand(getParams);
+    const getResp = await s3.send(getCmd);
+
+    const statusCode = getResp.$metadata.httpStatusCode || 200;
+    res.status(statusCode);
+
+    if (getResp.ContentRange) res.set('Content-Range', getResp.ContentRange);
+    if (getResp.ContentLength !== undefined) res.set('Content-Length', getResp.ContentLength.toString());
+
+    let streamEnded = false;
+    getResp.Body.on('end', () => { streamEnded = true; });
+    getResp.Body.on('error', () => { streamEnded = true; });
+
+    req.on('close', () => {
+      if (!streamEnded) getResp.Body.destroy();
+    });
+
+    getResp.Body.pipe(res);
   } catch (error) {
     if (error instanceof NoSuchKey) return res.status(404).send('File not found');
+    if (error.$metadata?.httpStatusCode === 416) return res.status(416).send('Range Not Satisfiable');
     console.error('Proxy error:', error);
     res.status(500).send('Internal server error');
   }
-});
+}
 
-// ---------- Delete file (protected) ----------
-app.delete('/files/:key', async (req, res) => {
+app.get('/files/:key', (req, res) => serveFile(req, res, 'GET'));
+app.head('/files/:key', (req, res) => serveFile(req, res, 'HEAD'));
+
+// ── Delete ──
+app.delete('/files/:key', actionLimiter, async (req, res) => {
   const key = req.params.key;
   try {
     await s3.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
@@ -235,11 +382,10 @@ app.delete('/files/:key', async (req, res) => {
   }
 });
 
-// ---------- Rename file (protected) ----------
-app.patch('/files/:key', express.json(), async (req, res) => {
+// ── Rename (with collision check) ──
+app.patch('/files/:key', actionLimiter, express.json(), async (req, res) => {
   const oldKey = req.params.key;
-  const { newName } = req.body;
-
+  const { newName, overwrite } = req.body;
   if (!newName || typeof newName !== 'string' || newName.trim().length === 0) {
     return res.status(400).json({ success: false, error: 'A valid new name is required.' });
   }
@@ -254,21 +400,30 @@ app.patch('/files/:key', express.json(), async (req, res) => {
     newKey = baseName + oldExt;
   }
 
+  if (newKey.length > 1024) {
+    return res.status(400).json({ success: false, error: 'New name is too long.' });
+  }
   if (newKey === oldKey) {
     return res.json({ success: true, newKey, message: 'Name unchanged.' });
   }
 
   try {
+    if (!overwrite) {
+      try {
+        await s3.send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: newKey }));
+        return res.status(409).json({ success: false, error: 'A file with that name already exists.' });
+      } catch (e) {
+        if (!(e instanceof NoSuchKey)) throw e;
+      }
+    }
+
     await s3.send(new CopyObjectCommand({
       Bucket: R2_BUCKET,
       CopySource: `${R2_BUCKET}/${oldKey}`,
       Key: newKey,
     }));
-    await s3.send(new DeleteObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: oldKey,
-    }));
-    const newUrl = `https://${req.hostname}/files/${newKey}`;
+    await s3.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: oldKey }));
+    const newUrl = getPublicUrl(req, newKey);
     res.json({ success: true, newKey, url: newUrl });
   } catch (err) {
     console.error('Rename error:', err);
@@ -276,26 +431,60 @@ app.patch('/files/:key', express.json(), async (req, res) => {
   }
 });
 
-// ---------- Library (protected) ----------
+// ── Library (paginated) ──
 app.get('/list', async (req, res) => {
   try {
-    const command = new ListObjectsV2Command({ Bucket: R2_BUCKET });
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+    const token = req.query.token || undefined;
+    const command = new ListObjectsV2Command({
+      Bucket: R2_BUCKET,
+      MaxKeys: limit,
+      ContinuationToken: token,
+    });
     const data = await s3.send(command);
     const files = (data.Contents || []).map(obj => ({
       key: obj.Key,
       size: obj.Size,
       lastModified: obj.LastModified,
-      url: `https://${req.hostname}/files/${obj.Key}`
+      url: getPublicUrl(req, obj.Key),
     }));
-    files.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
-    res.json({ success: true, files });
+    res.json({
+      success: true,
+      files,
+      nextContinuationToken: data.NextContinuationToken || null,
+      isTruncated: data.IsTruncated || false,
+    });
   } catch (err) {
     console.error('List error:', err);
     res.status(500).json({ success: false, error: 'Failed to list files.' });
   }
 });
 
-app.get('/health', (req, res) => res.send('ok'));
+// ── Health check ──
+app.get('/health', (_req, res) => res.send('ok'));
 
+// ── Index route ──
+app.get('/', serveIndexWithCSP);
+
+// ── Global error handler ──
+app.use((err, _req, res, _next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// ── Graceful shutdown & timeouts ──
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+server.timeout = 0;
+server.headersTimeout = 0;
+server.keepAliveTimeout = 0;
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, closing server...');
+  server.close(() => process.exit(0));
+});
+process.on('SIGINT', () => {
+  console.log('SIGINT received, closing server...');
+  server.close(() => process.exit(0));
+});
