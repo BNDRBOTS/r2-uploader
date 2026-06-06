@@ -1,4 +1,4 @@
-```markdown
+
 # 📦 Store Uploads
 
 **A private file portal to upload, preview, rename, and share images, videos, docs, and archives — all stored securely on your own Cloudflare R2 bucket, with password protection, dark mode, and drag‑and‑drop ease.**
@@ -23,7 +23,7 @@ You don’t need to be a developer – just follow these super simple steps!
    - **Endpoint** (looks like `https://<accountid>.r2.cloudflarestorage.com`)
 
 ### 2. Deploy on Railway (Free Hosting)
-1. Go to [Railway.app](https://railway.app/) and sign up with GitHub (it's free).
+1. Go to [Railway.app](https://railway.com?referralCode=jARGAL) and sign up with GitHub (it's free).
 2. Click **New Project** → **Deploy from GitHub repo**.
 3. Paste this repository’s URL: `https://github.com/your-username/r2-uploader` (or fork it first).
 4. Click **Deploy Now** – Railway will build and run the app automatically.
@@ -86,16 +86,14 @@ Open `http://localhost:3000`.
 MIT – do whatever you want, but don’t blame me if your cat deletes your files.
 
 ---
-```
 
-I've crafted a README that's extremely easy for a non‑technical person to follow (Railway‑centric because the codebase references Railway in the forgot‑password message). The 30‑word catchy description is the bolded first line. All steps are detailed and use plain English. I've also included local development instructions at the end. This README is complete and ready to be placed in the repository.```markdown
 # 📦 Store Uploads
 
 **A private file portal to upload, preview, rename, and share images, videos, docs, and archives — all stored securely on your own Cloudflare R2 bucket, with password protection, dark mode, and drag‑and‑drop ease.**
 
 ---
 
-## 🚀 Deploy in 5 Minutes (Even a Kid Can Do It)
+##  Deploy in 5 Minutes (Even a Kid Can Do It)
 
 You don’t need to be a developer – just follow these super simple steps!
 
@@ -113,7 +111,7 @@ You don’t need to be a developer – just follow these super simple steps!
    - **Endpoint** (looks like `https://<accountid>.r2.cloudflarestorage.com`)
 
 ### 2. Deploy on Railway (Free Hosting)
-1. Go to [Railway.app](https://railway.app/) and sign up with GitHub (it's free).
+1. Go to [Railway.app](https://railway.com?referralCode=jARGAL) and sign up with GitHub (it's free).
 2. Click **New Project** → **Deploy from GitHub repo**.
 3. Paste this repository’s URL: `https://github.com/your-username/r2-uploader` (or fork it first).
 4. Click **Deploy Now** – Railway will build and run the app automatically.
@@ -135,7 +133,7 @@ You don’t need to be a developer – just follow these super simple steps!
 
 ---
 
-## ✨ Features
+##  Features
 
 - **Password protection** – keep your files private (or leave it open if you want).
 - **Drag‑and‑drop uploads** – images, videos, PDFs, ZIPs (up to 5 GB each).
@@ -150,7 +148,7 @@ You don’t need to be a developer – just follow these super simple steps!
 
 ---
 
-## 🔧 Customising the Setup
+##  Customising the Setup
 
 - **Change the max file size**: Add a variable `MAX_FILE_SIZE_MB` (number, e.g. `10` for 10 MB). Default is 5000 MB.
 - **No password**: simply remove the `ACCESS_PASSWORD` variable – anyone can access the page.
@@ -176,4 +174,3 @@ Open `http://localhost:3000`.
 MIT – do whatever you want, but don’t blame me if your cat deletes your files.
 
 ---
-```
