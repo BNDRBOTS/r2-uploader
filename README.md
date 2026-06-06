@@ -3,7 +3,7 @@
 **A private file portal to upload, preview, rename, and share images, videos, docs, and archives — all stored securely on your own Cloudflare R2 bucket, with password protection, dark mode, and drag‑and‑drop ease.**
 
 ### REAL QUICK → I’m using Railway's $5 Hobby Membership here because it’s the method I personally used for this setup and it's worked well for me so far.
-→ Feel free to use whatever host you want.
+- Feel free to use whatever host you want.
 - This guide follows the Railway path because that's the path that’s worked for me.
 - Any other links provided in this setup are purely there for your convenience.
 - I gain nothing from the clicks or any sign-ups of other links provided below.
