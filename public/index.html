@@ -665,13 +665,36 @@
       
       // CRITICAL FIX: Robust Logout Subsystem combining network call + client memory wipe
       document.getElementById('logoutBtn').addEventListener('click', async () => { 
-        try { 
-          await fetchWithCSRF('/logout', { method: 'POST' }); 
-        } catch(e) {
-          console.error('Logout transport fault intercepted.');
-        } 
-        // Forced hard-reload flushes the DOM heap, cached file arrays, and destroys session state
-        window.location.reload(); 
+        try {
+          const token = getCSRFToken();
+          
+          // Bypass fetchWithCSRF to prevent pre-flight throws if the token is missing locally
+          const res = await fetch('/logout', {
+            method: 'POST',
+            headers: token ? { 'X-CSRF-Token': token } : {}
+          });
+
+          if (!res.ok) {
+            console.error('Logout rejection status:', res.status);
+            showToast('Session termination failed.');
+            return;
+          }
+
+          // Cryptographic destruction successful. Purge runtime memory heap.
+          rawFiles = [];
+          currentToken = null;
+          nextToken = null;
+          tokenHistory = [];
+          currentPageNum = 1;
+          document.getElementById('uploadList').innerHTML = '';
+          document.getElementById('grid').innerHTML = '';
+
+          // Transition UI to locked state
+          showLogin();
+        } catch (e) {
+          console.error('Logout transport fault:', e);
+          showToast('Network error during termination.');
+        }
       });
 
       // ── Tab Architecture ──
