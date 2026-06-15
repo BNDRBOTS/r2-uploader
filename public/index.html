@@ -22,6 +22,7 @@
       
       --accent: #0066CC;
       --accent-hover: #0077ED;
+      --accent-glow: rgba(0, 102, 204, 0.25);
       --danger: #FF3B30;
       
       --radius-sm: 6px;
@@ -30,6 +31,7 @@
       
       --shadow-float: 0 20px 40px rgba(0, 0, 0, 0.06);
       --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+      --shadow-glow: 0 8px 30px var(--accent-glow), 0 0 0 1px var(--accent);
       
       --font-stack: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
       --transition-smooth: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
@@ -48,10 +50,12 @@
       
       --accent: #2997FF;
       --accent-hover: #1485FF;
+      --accent-glow: rgba(41, 151, 255, 0.35);
       --danger: #FF453A;
       
       --shadow-float: 0 20px 40px rgba(0, 0, 0, 0.5);
       --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+      --shadow-glow: 0 8px 30px var(--accent-glow), 0 0 0 1px var(--accent);
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -71,7 +75,8 @@
       transition: background var(--transition-smooth), color var(--transition-smooth);
     }
 
-    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+    /* Impeccable focus states replacing native outlines with subtle inner/outer glows */
+    :focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: inherit; }
 
     .app-container {
       width: 100%;
@@ -124,7 +129,13 @@
       letter-spacing: -0.01em;
     }
     
-    button:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); opacity: 0.9; }
+    button:hover { 
+      transform: translateY(-1px); 
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15); 
+    }
+    [data-theme="dark"] button:hover {
+      box-shadow: 0 6px 20px rgba(255,255,255,0.15);
+    }
     button:active { transform: translateY(0) scale(0.98); }
     button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; box-shadow: none; }
 
@@ -133,14 +144,14 @@
       color: var(--text-main);
       border: 1px solid var(--border-light);
     }
-    .btn-secondary:hover { border-color: var(--border-focus); background: var(--bg-surface); }
+    .btn-secondary:hover { border-color: var(--border-focus); background: var(--bg-surface); box-shadow: var(--shadow-sm); }
     
     .btn-danger {
       background: var(--bg-base);
       color: var(--danger);
       border: 1px solid var(--border-light);
     }
-    .btn-danger:hover { background: var(--danger); color: #FFF; border-color: var(--danger); }
+    .btn-danger:hover { background: var(--danger); color: #FFF; border-color: var(--danger); box-shadow: 0 6px 20px rgba(255, 59, 48, 0.3); }
 
     input, select {
       height: 44px;
@@ -152,10 +163,13 @@
       font-size: 1rem;
       font-family: inherit;
       outline: none;
-      transition: border-color 0.2s;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       width: 100%;
     }
-    input:focus, select:focus { border-color: var(--border-focus); }
+    input:focus, select:focus { border-color: var(--accent); box-shadow: var(--shadow-glow); }
+
+    /* CRITICAL FIX: Ensure the native file input NEVER shows */
+    input[type="file"] { display: none !important; }
 
     /* Tabs Architecture */
     .tabs {
@@ -206,6 +220,7 @@
     .forgot-toggle {
       background: none; border: none; color: var(--text-muted); font-size: 0.85rem; 
       cursor: pointer; text-align: center; width: 100%; padding: 0; display: inline; height: auto; font-weight: 400;
+      box-shadow: none !important;
     }
     .forgot-toggle:hover { color: var(--text-main); transform: none; text-decoration: underline; }
     
@@ -221,9 +236,9 @@
       border-radius: var(--radius-sm); font-size: 0.9rem; font-weight: 500; margin-top: 16px; text-align: center;
     }
 
-    /* Dropzone */
+    /* Dropzone w/ Requested Glow Shadow Border */
     .dropzone {
-      border: 1px dashed var(--border-light);
+      border: 2px dashed var(--border-light);
       border-radius: var(--radius-lg);
       padding: 64px 24px;
       text-align: center;
@@ -235,7 +250,12 @@
       align-items: center;
       gap: 12px;
     }
-    .dropzone:hover, .dropzone.dragover { border-color: var(--text-main); background: var(--bg-base); }
+    .dropzone:hover, .dropzone.dragover { 
+      border-color: var(--accent); 
+      background: var(--bg-base); 
+      box-shadow: var(--shadow-glow);
+      transform: translateY(-2px);
+    }
     .dropzone.disabled { opacity: 0.5; pointer-events: none; }
     .dropzone p { font-size: 1.1rem; font-weight: 500; color: var(--text-main); }
     .dropzone .supported { font-size: 0.85rem; color: var(--text-muted); font-weight: 400; }
@@ -250,6 +270,11 @@
     .upload-item { 
       padding: 16px; border: 1px solid var(--border-light); border-radius: var(--radius-md); 
       display: flex; align-items: center; gap: 16px; background: var(--bg-base);
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .upload-item:hover {
+      border-color: var(--border-focus);
+      box-shadow: var(--shadow-sm);
     }
     .upload-item .meta { flex: 1; min-width: 0; }
     .upload-item .name { font-weight: 500; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px; }
@@ -266,36 +291,47 @@
       display: flex; align-items: center; justify-content: space-between; 
       padding: 16px 20px; margin-bottom: 24px; background: var(--bg-surface);
       border-radius: var(--radius-md); font-size: 0.9rem;
+      border: 1px solid transparent;
+      transition: border-color 0.3s;
     }
+    .bulk-bar:hover { border-color: var(--border-light); }
     .checkbox-wrap { display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 500; }
     
     /* Native checkbox styling */
     input[type="checkbox"] {
       appearance: none; width: 20px; height: 20px; border: 1px solid var(--border-light);
       border-radius: 4px; background: var(--bg-base); cursor: pointer; position: relative;
-      transition: all 0.2s; padding: 0;
+      transition: all 0.2s; padding: 0; outline: none;
     }
+    input[type="checkbox"]:focus-visible { box-shadow: 0 0 0 3px var(--accent-glow); border-color: var(--accent); }
     input[type="checkbox"]:checked { background: var(--text-main); border-color: var(--text-main); }
     input[type="checkbox"]:checked::after {
       content: ''; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px;
       border: solid var(--bg-base); border-width: 0 2px 2px 0; transform: rotate(45deg);
     }
 
-    /* Grid Architecture */
+    /* Grid Architecture w/ Glowing Cards */
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 24px; }
     .grid-item {
       position: relative; border-radius: var(--radius-md); overflow: hidden;
       border: 1px solid var(--border-light); background: var(--bg-base);
-      transition: transform var(--transition-smooth), box-shadow var(--transition-smooth);
+      transition: transform var(--transition-smooth), box-shadow var(--transition-smooth), border-color var(--transition-smooth);
       display: flex; flex-direction: column; cursor: default;
     }
-    .grid-item:hover { transform: translateY(-4px); box-shadow: var(--shadow-float); border-color: var(--border-focus); }
+    .grid-item:hover { 
+      transform: translateY(-4px); 
+      box-shadow: var(--shadow-float), var(--shadow-glow); 
+      border-color: var(--accent); 
+    }
     
     .thumb-wrapper { width: 100%; aspect-ratio: 4 / 3; background: var(--bg-surface); position: relative; overflow: hidden; }
-    .thumb, .video-thumb { width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: opacity 0.3s; }
-    .doc-thumb { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted); cursor: pointer; }
-    
-    .grid-item .info { padding: 16px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; border-top: 1px solid var(--border-light); }
+    .thumb, .video-thumb { width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s; }
+    .grid-item:hover .thumb { transform: scale(1.03); }
+    .doc-thumb { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted); cursor: pointer; transition: transform 0.4s; }
+    .grid-item:hover .doc-thumb { transform: scale(1.05); color: var(--text-main); }
+
+    .grid-item .info { padding: 16px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; border-top: 1px solid var(--border-light); transition: border-color 0.3s; }
+    .grid-item:hover .info { border-color: transparent; }
     .grid-item .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; font-size: 0.95rem; margin-bottom: 4px; }
     .grid-item .size { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 12px; }
     
@@ -307,8 +343,8 @@
     .copy-link:hover { background: var(--border-light); }
     .copy-link:active { transform: scale(0.95); }
 
-    .item-actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s; z-index: 2; }
-    .grid-item:hover .item-actions { opacity: 1; }
+    .item-actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s, transform 0.2s; transform: translateY(-4px); z-index: 2; }
+    .grid-item:hover .item-actions { opacity: 1; transform: translateY(0); }
     .icon-btn {
       background: var(--bg-overlay); border: 1px solid var(--border-light); border-radius: 50%; 
       width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; 
@@ -429,7 +465,8 @@
         <p>Select assets or drop into zone</p>
         <span class="supported">5GB object limit. Supports Images, Video, PDF, ZIP.</span>
       </div>
-      <input type="file" id="fileInput" accept="image/*,video/*,.pdf,.zip" multiple aria-label="Select files">
+      <!-- Hidden System File Input -->
+      <input type="file" id="fileInput" accept="image/*,video/*,.pdf,.zip" multiple aria-label="Select files" tabindex="-1">
       
       <div id="overallProgress" class="overall-progress hidden">
         <div class="progress-labels">
