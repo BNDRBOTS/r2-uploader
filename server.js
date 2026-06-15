@@ -222,9 +222,25 @@ app.post('/login', authLimiter, express.json(), (req, res) => {
 app.use(authMiddleware);
 app.use(csrfProtection);
 
+// ── Logout ──
 app.post('/logout', (req, res) => {
-  res.clearCookie('auth_token', { path: '/' });
-  res.clearCookie('csrf_token', { path: '/' });
+  const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  
+  // Browsers require absolute parity with the Set-Cookie definition to authorize a deletion
+  res.clearCookie('auth_token', { 
+    path: '/', 
+    sameSite: 'strict', 
+    secure, 
+    httpOnly: true 
+  });
+  
+  res.clearCookie('csrf_token', { 
+    path: '/', 
+    sameSite: 'strict', 
+    secure, 
+    httpOnly: false 
+  });
+  
   res.json({ success: true });
 });
 
