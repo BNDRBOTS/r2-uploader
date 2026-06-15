@@ -662,7 +662,10 @@
       });
       document.getElementById('passwordInput').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('loginBtn').click(); });
       document.getElementById('forgotLink').addEventListener('click', () => document.getElementById('forgotMsg').classList.toggle('hidden'));
-      document.getElementById('logoutBtn').addEventListener('click', async () => { await fetchWithCSRF('/logout', { method: 'POST' }); showLogin(); });
+      document.getElementById('logoutBtn').addEventListener('click', async () => { 
+        try { await fetchWithCSRF('/logout', { method: 'POST' }); } catch(e) {} 
+        window.location.reload(); 
+      });
 
       // ── Tab Architecture ──
       const tabs = document.querySelectorAll('.tab');
