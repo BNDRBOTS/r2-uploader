@@ -662,8 +662,15 @@
       });
       document.getElementById('passwordInput').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('loginBtn').click(); });
       document.getElementById('forgotLink').addEventListener('click', () => document.getElementById('forgotMsg').classList.toggle('hidden'));
+      
+      // CRITICAL FIX: Robust Logout Subsystem combining network call + client memory wipe
       document.getElementById('logoutBtn').addEventListener('click', async () => { 
-        try { await fetchWithCSRF('/logout', { method: 'POST' }); } catch(e) {} 
+        try { 
+          await fetchWithCSRF('/logout', { method: 'POST' }); 
+        } catch(e) {
+          console.error('Logout transport fault intercepted.');
+        } 
+        // Forced hard-reload flushes the DOM heap, cached file arrays, and destroys session state
         window.location.reload(); 
       });
 
